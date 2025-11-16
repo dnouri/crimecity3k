@@ -1,0 +1,67 @@
+[project]
+name = "crimecity3k"
+version = "0.1.0"
+description = "Interactive web map visualizing Swedish police events aggregated to H3 hexagonal cells with population normalization"
+requires-python = ">=3.13"
+dependencies = [
+    "duckdb>=1.1.0",
+    "fastapi>=0.117.0",
+    "uvicorn>=0.37.0",
+    "qck>=0.1.0",
+    "pydantic>=2.10.0",
+    "tqdm>=4.67.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-cov>=6.0.0",
+    "pytest-xdist>=3.6.0",
+    "playwright>=1.49.0",
+    "pytest-playwright>=0.6.2",
+    "ruff>=0.8.0",
+    "mypy>=1.13.0",
+    "pre-commit>=4.0.0",
+    "httpx>=0.28.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"
+python_classes = "Test*"
+python_functions = "test_*"
+addopts = "-v --tb=short --dist loadscope"
+markers = [
+    "integration: marks tests as integration tests (may be slow)",
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "e2e: marks tests as end-to-end tests requiring a browser",
+    "mobile: marks tests for mobile viewport behavior",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "C4",  # flake8-comprehensions
+    "UP",  # pyupgrade
+]
+ignore = []
+
+[tool.mypy]
+python_version = "3.13"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_any_generics = false
+check_untyped_defs = true

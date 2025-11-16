@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CrimeCity3K - Swedish Police Events Map</title>
+    <link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet">
+    <link href="style.css" rel="stylesheet">
+</head>
+<body>
+    <div id="map"></div>
+
+    <div id="controls">
+        <div class="control-group">
+            <label for="category-filter">Category:</label>
+            <select id="category-filter">
+                <option value="all">All Categories</option>
+                <option value="traffic">Traffic</option>
+                <option value="property">Property</option>
+                <option value="violence">Violence</option>
+                <option value="narcotics">Narcotics</option>
+                <option value="fraud">Fraud</option>
+                <option value="public_order">Public Order</option>
+                <option value="weapons">Weapons</option>
+                <option value="other">Other</option>
+            </select>
+        </div>
+
+        <div class="control-group">
+            <label class="toggle-label">
+                <span id="display-mode-label">Absolute</span>
+                <label class="toggle-switch">
+                    <input type="checkbox" id="display-mode-toggle">
+                    <span class="toggle-slider"></span>
+                </label>
+            </label>
+        </div>
+    </div>
+
+    <div id="legend">
+        <h4 id="legend-title">Event Count</h4>
+        <div id="legend-items"></div>
+        <div class="legend-footer">
+            Data: <a href="https://polisen.se" target="_blank" rel="noopener">Swedish Police</a>,
+            <a href="https://scb.se" target="_blank" rel="noopener">SCB</a> |
+            <a href="https://github.com/dnouri/crimecity3k" target="_blank" rel="noopener">Source</a>
+        </div>
+    </div>
+
+    <div id="cell-details">
+        <div class="details-header">
+            <h4 id="details-title" data-testid="details-title">Cell Details</h4>
+            <button id="close-details" aria-label="Close">&times;</button>
+        </div>
+        <div id="details-content"></div>
+    </div>
+
+    <!-- Drill-down drawer for event list -->
+    <div id="drill-down-drawer" class="drill-down-drawer" data-testid="drill-down-drawer"
+         role="dialog" aria-modal="true" aria-labelledby="drawer-location">
+        <div class="drawer-header">
+            <div class="drawer-title">
+                <h2 id="drawer-location" data-testid="drawer-location">Events</h2>
+                <span id="drawer-stats-summary" data-testid="drawer-stats-summary" class="drawer-stats-summary" aria-live="polite"></span>
+            </div>
+            <button id="drawer-close" class="drawer-close" data-testid="drawer-close"
+                    aria-label="Close event drawer">&times;</button>
+        </div>
+
+        <div class="drawer-filters" data-testid="filter-bar">
+            <!-- Search -->
+            <div class="search-container">
+                <span class="search-icon" aria-hidden="true">🔍</span>
+                <input type="search" id="filter-search" class="search-input" data-testid="search-input"
+                       placeholder="Search events..." aria-label="Search events by keyword">
+            </div>
+
+            <!-- Date presets -->
+            <div class="filter-section">
+                <div class="date-chips">
+                    <button class="filter-chip" data-testid="date-chip-7d" data-days="7">7d</button>
+                    <button class="filter-chip" data-testid="date-chip-30d" data-days="30">30d</button>
+                    <button class="filter-chip" data-testid="date-chip-90d" data-days="90">90d</button>
+                    <button class="filter-chip active" data-testid="date-chip-all" data-days="">All</button>
+                    <button class="filter-chip" data-testid="date-chip-custom">Custom</button>
+                </div>
+                <div id="custom-date-range" class="custom-date-range">
+                    <input type="date" id="date-start" data-testid="date-start">
+                    <span>to</span>
+                    <input type="date" id="date-end" data-testid="date-end">
+                </div>
+            </div>
+
+            <!-- Category chips -->
+            <div class="filter-section">
+                <div class="category-chips" id="category-chips">
+                    <button class="filter-chip category-chip active" data-testid="category-all" data-category="all">All</button>
+                    <button class="filter-chip category-chip" data-testid="category-property" data-category="property">Property</button>
+                    <button class="filter-chip category-chip" data-testid="category-traffic" data-category="traffic">Traffic</button>
+                    <button class="filter-chip category-chip" data-testid="category-violence" data-category="violence">Violence</button>
+                    <button class="filter-chip category-chip" data-testid="category-narcotics" data-category="narcotics">Narcotics</button>
+                    <button class="filter-chip category-chip" data-testid="category-other" data-category="other">Other</button>
+                </div>
+                <div id="type-expansion" class="type-expansion" data-testid="type-expansion"></div>
+            </div>
+        </div>
+
+        <div class="drawer-content">
+            <!-- Loading state -->
+            <div id="loading-spinner" class="loading-spinner" data-testid="loading-spinner">
+                <div class="spinner"></div>
+                <span>Loading events...</span>
+            </div>
+
+            <!-- Event list -->
+            <div id="event-list" class="event-list" data-testid="event-list"></div>
+
+            <!-- Empty state -->
+            <div id="empty-state" class="empty-state">
+                <p>No events match your filters.</p>
+            </div>
+
+            <!-- Error state -->
+            <div id="error-state" class="error-state">
+                <p>Failed to load events.</p>
+                <button id="retry-button">Try Again</button>
+            </div>
+        </div>
+
+        <!-- Pagination -->
+        <div id="pagination" class="pagination" data-testid="pagination">
+            <button id="pagination-prev" data-testid="pagination-prev" disabled>&larr; Prev</button>
+            <span id="page-info" data-testid="page-info">Page 1 of 1</span>
+            <button id="pagination-next" data-testid="pagination-next">Next &rarr;</button>
+        </div>
+    </div>
+
+    <!-- Bottom sheet for mobile (hidden on desktop) -->
+    <div id="bottom-sheet" class="bottom-sheet" data-testid="bottom-sheet"
+         role="dialog" aria-modal="true" aria-labelledby="sheet-location">
+        <div class="sheet-handle" aria-hidden="true"></div>
+        <div class="sheet-header">
+            <h2 id="sheet-location" data-testid="sheet-location">Events</h2>
+            <button id="sheet-close" class="sheet-close" data-testid="sheet-close"
+                    aria-label="Close bottom sheet">&times;</button>
+        </div>
+        <div class="sheet-content" id="sheet-content">
+            <!-- Content will be rendered here by BottomSheet.render() -->
+        </div>
+    </div>
+
+    <!-- Keyboard shortcuts help modal -->
+    <div id="shortcuts-help" class="shortcuts-help" data-testid="shortcuts-help" role="dialog" aria-modal="true" aria-labelledby="shortcuts-title">
+        <div class="shortcuts-content">
+            <div class="shortcuts-header">
+                <h3 id="shortcuts-title">Keyboard Shortcuts</h3>
+                <button id="shortcuts-close" class="shortcuts-close" aria-label="Close">&times;</button>
+            </div>
+            <dl class="shortcuts-list">
+                <div class="shortcut-item">
+                    <dt><kbd>S</kbd></dt>
+                    <dd>Open search from stats view</dd>
+                </div>
+                <div class="shortcut-item">
+                    <dt><kbd>Esc</kbd></dt>
+                    <dd>Close current panel / go back</dd>
+                </div>
+                <div class="shortcut-item">
+                    <dt><kbd>/</kbd></dt>
+                    <dd>Focus search input</dd>
+                </div>
+                <div class="shortcut-item">
+                    <dt><kbd>?</kbd></dt>
+                    <dd>Show this help</dd>
+                </div>
+            </dl>
+        </div>
+    </div>
+
+    <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+    <script src="https://unpkg.com/pmtiles@3.2.0/dist/pmtiles.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>

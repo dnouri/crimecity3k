@@ -1,0 +1,14 @@
+# Pre-commit hooks configuration
+# Runs 'make check' before every commit to ensure code quality
+# To bypass (use sparingly): git commit --no-verify
+
+repos:
+  - repo: local
+    hooks:
+      - id: make-check
+        name: Run make check (ruff linting and mypy type checking)
+        entry: make check
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-commit]

@@ -1,0 +1,124 @@
+# Daily Deploy Workflow
+# Builds and deploys CrimeCity3K with latest events data
+#
+# Triggers:
+# - Daily at 04:30 UTC (15 min after upstream polisen-se-events-history release)
+# - Manual via workflow_dispatch
+# - On push to master branch (for testing deployment changes)
+# - repository_dispatch from upstream (future enhancement)
+#
+# Required secrets:
+# - DEPLOY_SSH_KEY: Private SSH key for server access
+# - DEPLOY_KNOWN_HOSTS: SSH known_hosts entry for server
+# - DEPLOY_SERVER: user@hostname for deployment target
+# - DEPLOY_DOMAIN: Public domain for health check verification
+
+name: Daily Deploy
+
+on:
+  schedule:
+    # Run at 04:30 UTC daily (15 min after upstream release at 04:15)
+    - cron: '30 4 * * *'
+  workflow_dispatch:
+    # Allow manual trigger from GitHub Actions UI
+  repository_dispatch:
+    # Allow trigger from polisen-se-events-history (future enhancement)
+    types: [data-updated]
+  push:
+    branches: [master]
+    paths:
+      # Only deploy on changes to deployment-related files
+      - 'Containerfile'
+      - '.containerignore'
+      - '.github/workflows/deploy.yml'
+      - 'deployment/**'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Install Tippecanoe
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y tippecanoe
+
+      - name: Install Podman
+        run: |
+          sudo apt-get install -y podman
+
+      - name: Fetch events.parquet from upstream
+        run: make fetch-events
+
+      - name: Run data pipeline (aggregation + tiles)
+        run: make pipeline-all
+
+      - name: Build container image
+        run: make build-container
+
+      - name: Setup SSH for deployment
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+          DEPLOY_SERVER: ${{ secrets.DEPLOY_SERVER }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          echo "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 644 ~/.ssh/known_hosts
+          # Extract hostname from DEPLOY_SERVER (format: user@hostname)
+          DEPLOY_HOST="${DEPLOY_SERVER#*@}"
+          # Create SSH config to use deploy key automatically for all connections
+          cat > ~/.ssh/config << EOF
+          Host $DEPLOY_HOST
+              IdentityFile ~/.ssh/deploy_key
+              IdentitiesOnly yes
+          EOF
+          chmod 600 ~/.ssh/config
+
+      - name: Upload container to server
+        env:
+          DEPLOY_SERVER: ${{ secrets.DEPLOY_SERVER }}
+        run: |
+          # Override DEPLOY_SERVER from Makefile with secret
+          make upload-container DEPLOY_SERVER=$DEPLOY_SERVER
+
+      - name: Deploy container on server
+        env:
+          DEPLOY_SERVER: ${{ secrets.DEPLOY_SERVER }}
+        run: |
+          make deploy-container DEPLOY_SERVER=$DEPLOY_SERVER
+
+      - name: Verify deployment health (external)
+        # Non-blocking: internal health check in deploy-container already passed
+        # This external check can fail due to DNS/SSL configuration not yet ready
+        continue-on-error: true
+        env:
+          DEPLOY_DOMAIN: ${{ secrets.DEPLOY_DOMAIN }}
+        run: |
+          echo "Verifying external HTTPS endpoint..."
+          sleep 10
+          if curl -sf "https://${DEPLOY_DOMAIN}/health" --max-time 10; then
+            echo "External health check passed!"
+          else
+            echo "Warning: External health check failed (DNS/SSL may need configuration)"
+            echo "The container is running - internal health check already passed"
+          fi
+
+      - name: Cleanup old deployments on server
+        env:
+          DEPLOY_SERVER: ${{ secrets.DEPLOY_SERVER }}
+        run: |
+          make deploy-cleanup DEPLOY_SERVER=$DEPLOY_SERVER
+
+      - name: Cleanup local tarball
+        if: always()
+        run: rm -f crimecity3k-*.tar

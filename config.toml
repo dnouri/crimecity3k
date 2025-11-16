@@ -1,0 +1,22 @@
+# CrimeCity3K Configuration
+
+# Base directory for all data files
+data_dir = "data"
+
+[aggregation]
+# H3 resolutions to compute (4: ~19km, 5: ~6km, 6: ~3.2km)
+resolutions = [4, 5, 6]
+# Minimum population threshold for displaying rates (privacy/outlier filter)
+min_population_threshold = 100
+
+[duckdb]
+# DuckDB performance tuning
+memory_limit = "4GB"
+threads = 2
+temp_directory = "/tmp/duckdb"
+max_temp_directory_size = "50GB"
+
+[export]
+# Export configuration
+geojson_compression = true
+pmtiles_max_zoom = 10

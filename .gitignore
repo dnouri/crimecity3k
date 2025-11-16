@@ -1,0 +1,59 @@
+# Data files (except test fixtures)
+data/*.parquet
+!data/test_*.parquet
+data/*.gpkg
+data/*.db
+data/tiles/
+
+# Municipality generated data (keep boundaries.geojson and population.csv)
+data/municipalities/*.parquet
+data/municipalities/*.geojsonl.gz
+
+# Generated test fixtures (created by make test-fixtures)
+tests/fixtures/data/tiles/
+tests/fixtures/data/municipalities/
+tests/fixtures/static/
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Testing
+.coverage
+htmlcov/
+.pytest_cache/
+.tox/
+
+# Type checking and linting
+.mypy_cache/
+.ruff_cache/
+.dmypy.json
+dmypy.json
+
+# Temporary files
+*.tmp
+*.swp
+*.swo
+*~
+tmp/
+
+# IDE
+.vscode/
+.idea/
+*.sublime-*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build
+dist/
+build/
+*.egg-info/
+
+# Lock file (users generate their own)
+uv.lock

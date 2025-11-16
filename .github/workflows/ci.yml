@@ -1,0 +1,69 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+
+jobs:
+  test:
+    name: Lint, Type Check, and Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y tippecanoe
+
+      - name: Install dependencies
+        run: make install
+
+      - name: Cache DuckDB extensions
+        uses: actions/cache@v4
+        with:
+          path: ~/.duckdb/extensions
+          key: duckdb-extensions-${{ runner.os }}-v1
+
+      - name: Pre-install DuckDB extensions
+        run: |
+          uv run python -c "
+          import duckdb
+          conn = duckdb.connect()
+          conn.execute('INSTALL h3 FROM community')
+          conn.execute('INSTALL fts')
+          conn.close()
+          print('DuckDB extensions installed successfully')
+          "
+
+      - name: Run linting and type checks
+        run: make check
+
+      - name: Generate test fixtures
+        run: make test-fixtures
+
+      - name: Run tests with coverage
+        # Using --dist loadscope keeps module-scoped fixtures (like live_server)
+        # on the same worker, preventing DuckDB extension installation races
+        run: make test
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-report
+          path: htmlcov/
+          retention-days: 30

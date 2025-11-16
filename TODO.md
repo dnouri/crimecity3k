@@ -10,24 +10,26 @@
 
 ---
 
-## Phase 0: Project Foundation & Setup
+## Phase 0: Project Foundation & Setup ✅ COMPLETE
 
 **Goal:** Establish project structure, dependencies, test infrastructure, and configuration system. All subsequent work builds on this foundation.
 
-**Duration:** 2-3 hours
+**Duration:** 2-3 hours (Actual: ~3 hours)
 
 **Acceptance Criteria:**
-- [ ] Project structure follows SQL-driven pipeline pattern
-- [ ] All dependencies installed and locked (including qck)
-- [ ] config.toml created with validation
-- [ ] pytest runs successfully (infrastructure tests pass)
-- [ ] DuckDB with H3 and spatial extensions loads
-- [ ] Git initialized with proper .gitignore
-- [ ] Test fixture created and committed
+- [x] Project structure follows SQL-driven pipeline pattern
+- [x] All dependencies installed and locked (including qck)
+- [x] config.toml created with validation
+- [x] pytest runs successfully (infrastructure tests pass) - 11 tests passing
+- [x] DuckDB with H3 and spatial extensions loads
+- [x] Git initialized with proper .gitignore
+- [x] Test fixture created and committed (476 events)
+- [x] **BONUS:** GitHub Actions CI workflow added
+- [x] **BONUS:** Pre-commit hooks configured to run `make check`
 
 ### Tasks
 
-- [ ] **0.1: Create pyproject.toml**
+- [x] **0.1: Create pyproject.toml**
   - Use `uv` package manager for dependency management
   - Required dependencies:
     - `duckdb>=1.1.0` - Columnar SQL engine
@@ -46,7 +48,7 @@
   - Package name: `crimecity3k`
   - Commit: "chore: add pyproject.toml with dependencies"
 
-- [ ] **0.2: Create directory structure**
+- [x] **0.2: Create directory structure**
   ```
   crimecity3k/
   ├── crimecity3k/          # Python package
@@ -74,7 +76,8 @@
   │   └── events.parquet    # (user provides, gitignored)
   ├── tmp/                  # Spike scripts (keep for reference)
   ├── .github/
-  │   └── workflows/        # (empty for now)
+  │   └── workflows/
+  │       └── ci.yml        # GitHub Actions CI (added in Phase 0)
   ├── config.toml           # Configuration file
   ├── pyproject.toml
   ├── Makefile
@@ -84,7 +87,7 @@
   ```
   - Commit: "chore: create project directory structure"
 
-- [ ] **0.3: Initialize Git and .gitignore**
+- [x] **0.3: Initialize Git and .gitignore**
   - Ignore patterns:
     - `data/*.parquet` (except test fixtures)
     - `data/*.gpkg`
@@ -101,7 +104,7 @@
     - `*.tmp` (temp files from atomic writes)
   - Initial commit: "chore: initialize git repository"
 
-- [ ] **0.4: Create config.toml**
+- [x] **0.4: Create config.toml**
   - Follow aviation-anomaly pattern for configuration management
   - Structure:
     ```toml
@@ -130,7 +133,7 @@
     ```
   - Commit: "config: add config.toml with default settings"
 
-- [ ] **0.5: Create config.py with Pydantic models**
+- [x] **0.5: Create config.py with Pydantic models**
   - Pattern: Type-safe configuration loading with validation
   - Implementation:
     ```python
@@ -188,7 +191,7 @@
     ```
   - Commit: "feat: add Pydantic config loading"
 
-- [ ] **0.6: Create data_access.py for DuckDB connection management**
+- [x] **0.6: Create data_access.py for DuckDB connection management**
   - Pattern: Centralized DuckDB connection with config application
   - Implementation:
     ```python
@@ -222,7 +225,7 @@
         conn.execute("SET enable_progress_bar = true")
         conn.execute("SET enable_progress_bar_print = true")
 
-        # Load extensions
+        # Load extensions (improved in implementation to handle core vs community)
         if extensions:
             for ext in extensions:
                 conn.execute(f"INSTALL {ext} FROM community")
@@ -230,9 +233,10 @@
 
         return conn
     ```
+  - **Note:** Implementation improved to distinguish core extensions (spatial) from community (h3)
   - Commit: "feat: add DuckDB connection management"
 
-- [ ] **0.7: Create test fixture**
+- [x] **0.7: Create test fixture**
   - Extract events from 2024-01-15 to 2024-01-22 (476 events)
   - Save as `tests/fixtures/events_2024_01_15-22.parquet`
   - This fixture is checked into git (small, ~20-30 KB)
@@ -253,7 +257,7 @@
     ```
   - Commit: "test: add test fixture for 2024-01-15 to 2024-01-22"
 
-- [ ] **0.8: Create tests/conftest.py with shared fixtures**
+- [x] **0.8: Create tests/conftest.py with shared fixtures**
   - Pattern: Reusable fixtures for DuckDB and sample data
   - Implementation:
     ```python
@@ -296,7 +300,7 @@
     ```
   - Commit: "test: add pytest fixtures"
 
-- [ ] **0.9: Create infrastructure tests**
+- [x] **0.9: Create infrastructure tests**
   - File: `tests/test_config.py`
     ```python
     def test_config_loads_from_file():
@@ -330,10 +334,10 @@
         assert count == 476
     ```
   - Run: `uv run pytest tests/ -v`
-  - Should show 4 passing tests
+  - **Actual:** 11 passing tests (expanded coverage)
   - Commit: "test: add infrastructure tests"
 
-- [ ] **0.10: Create stub Makefile**
+- [x] **0.10: Create stub Makefile**
   - Pattern: Phony targets + pipeline pattern rules
   - Minimal Makefile for Phase 0:
     ```makefile
@@ -354,12 +358,12 @@
     	uv sync
 
     check:
-    	uv run ruff check .
-    	uv run ruff format --check .
+    	uv run ruff check crimecity3k tests  # (updated to exclude tmp/)
+    	uv run ruff format --check crimecity3k tests
     	uv run mypy crimecity3k tests
 
     test:
-    	uv run pytest tests/ -v -n auto --cov=crimecity3k
+    	uv run pytest tests/ -v -n auto --cov=crimecity3k --cov-report=html --cov-report=term  # (added HTML report)
 
     clean:
     	rm -rf $(H3_DIR) $(TILES_DIR)
@@ -370,12 +374,21 @@
   - Commit: "build: add Makefile with basic targets"
 
 **Phase 0 Complete When:**
-- `make install` succeeds
-- `make test` shows 4+ passing tests
-- `make check` passes linting and type checking
-- config.toml loads successfully
-- DuckDB connection works with H3 extension
-- Git has clean history with 8-10 logical commits
+- [x] `make install` succeeds
+- [x] `make test` shows 4+ passing tests (11 tests passing with 91% coverage)
+- [x] `make check` passes linting and type checking
+- [x] config.toml loads successfully
+- [x] DuckDB connection works with H3 and spatial extensions
+- [x] Git has clean history (squashed by user)
+- [x] **BONUS:** GitHub Actions CI workflow validates all PRs and pushes
+
+**Improvements Made:**
+- Distinguished core DuckDB extensions (spatial) from community extensions (h3)
+- Added HTML coverage reports for better debugging
+- Excluded tmp/ directory from linting (spike scripts)
+- Added comprehensive type annotations with Generator for fixtures
+- GitHub Actions workflow with uv caching for faster CI runs
+- Pre-commit hooks configured to run `make check` before every commit (using pre-commit framework)
 
 ---
 

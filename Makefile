@@ -21,6 +21,15 @@ help:
 	@echo "  check        - Run linting and type checking"
 	@echo "  test         - Run test suite with coverage"
 	@echo "  clean        - Remove generated files and caches"
+	@echo ""
+	@echo "Data download:"
+	@echo "  data/population_1km_2024.gpkg  - Download SCB population grid"
+	@echo ""
+	@echo "Population pipeline:"
+	@echo "  pipeline-population            - Build all H3 resolutions (r4, r5, r6)"
+	@echo "  data/h3/population_r4.parquet  - Convert to H3 resolution 4 (~25km)"
+	@echo "  data/h3/population_r5.parquet  - Convert to H3 resolution 5 (~8km)"
+	@echo "  data/h3/population_r6.parquet  - Convert to H3 resolution 6 (~3km)"
 
 install:
 	uv sync --all-extras
@@ -39,3 +48,36 @@ clean:
 	find . -type d -name .pytest_cache -exec rm -rf {} + 2>/dev/null || true
 	find . -type f -name "*.tmp" -delete
 	rm -rf .mypy_cache .ruff_cache htmlcov .coverage
+
+# Download SCB population data (cached, one-time)
+$(DATA_DIR)/population_1km_2024.gpkg:
+	@echo "═══ Downloading SCB population data ═══"
+	@mkdir -p $(DATA_DIR)
+	curl -L "https://geodata.scb.se/geoserver/stat/wfs?\
+service=WFS&REQUEST=GetFeature&version=1.1.0&\
+TYPENAMES=stat:befolkning_1km_2024&outputFormat=geopackage" \
+	-o $@
+	@echo "✓ Population data downloaded: $@ ($$(du -h $@ | cut -f1))"
+
+# Pattern rule: Convert population grid to H3 cells at specified resolution
+# Example: make data/h3/population_r5.parquet builds resolution 5
+$(H3_DIR)/population_r%.parquet: $(DATA_DIR)/population_1km_2024.gpkg \
+                                  $(SQL_DIR)/population_to_h3.sql \
+                                  $(CONFIG)
+	@echo "═══ Converting population to H3 resolution $* ═══"
+	@mkdir -p $(H3_DIR)
+	uv run python -c "from pathlib import Path; \
+		from crimecity3k.config import Config; \
+		from crimecity3k.h3_processing import convert_population_to_h3; \
+		convert_population_to_h3(Path('$<'), Path('$@'), $*, Config.from_file('$(CONFIG)'))"
+	@echo "✓ H3 conversion complete: $@ ($$(du -h $@ | cut -f1))"
+
+# Convenience target: Build all population H3 resolutions
+.PHONY: pipeline-population
+pipeline-population: $(H3_DIR)/population_r4.parquet \
+                     $(H3_DIR)/population_r5.parquet \
+                     $(H3_DIR)/population_r6.parquet
+	@echo "═══ Population pipeline complete ═══"
+	@echo "  R4 (~25km): $(H3_DIR)/population_r4.parquet ($$(du -h $(H3_DIR)/population_r4.parquet | cut -f1))"
+	@echo "  R5 (~8km):  $(H3_DIR)/population_r5.parquet ($$(du -h $(H3_DIR)/population_r5.parquet | cut -f1))"
+	@echo "  R6 (~3km):  $(H3_DIR)/population_r6.parquet ($$(du -h $(H3_DIR)/population_r6.parquet | cut -f1))"

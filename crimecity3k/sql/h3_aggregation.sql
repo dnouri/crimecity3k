@@ -20,21 +20,33 @@
 --
 -- Output schema:
 --   h3_cell           : VARCHAR  (H3 cell ID, e.g., '85283473fffffff')
---   total_count       : BIGINT   (total events in cell)
---   traffic_count     : BIGINT   (traffic-related events)
---   property_count    : BIGINT   (property crime events)
---   violence_count    : BIGINT   (violence-related events)
---   narcotics_count   : BIGINT   (narcotics events)
---   fraud_count       : BIGINT   (fraud events)
---   public_order_count: BIGINT   (public order events)
---   weapons_count     : BIGINT   (weapons-related events)
---   other_count       : BIGINT   (uncategorized events)
+--   total_count       : INTEGER  (total events in cell)
+--   traffic_count     : INTEGER  (traffic-related events)
+--   property_count    : INTEGER  (property crime events)
+--   violence_count    : INTEGER  (violence-related events)
+--   narcotics_count   : INTEGER  (narcotics events)
+--   fraud_count       : INTEGER  (fraud events)
+--   public_order_count: INTEGER  (public order events)
+--   weapons_count     : INTEGER  (weapons-related events)
+--   other_count       : INTEGER  (uncategorized events)
 --   type_counts       : STRUCT[] (sparse array: [{type: VARCHAR, count: BIGINT}, ...])
 --   population        : DOUBLE   (population in cell)
 --   rate_per_10000    : DOUBLE   (events per 10,000 residents)
 --
 -- Dependencies: DuckDB H3 community extension
--- Category definitions: Based on category_mapping.toml (52 event types → 8 categories)
+--
+-- Category definitions (52 event types → 8 semantic categories):
+--   traffic       : 7 types  (accidents, traffic violations, drunk driving)
+--   property      : 8 types  (theft, burglary, robbery, vandalism)
+--   violence      : 7 types  (assault, rape, murder, threats)
+--   narcotics     : 1 type   (drug offenses)
+--   fraud         : 2 types  (fraud, usury)
+--   public_order  : 6 types  (public order act, drunkenness, disturbance)
+--   weapons       : 1 type   (weapons law violations)
+--   other         : 20 types (all remaining event types)
+--
+-- Categories are hardcoded in the CASE statement below (lines 46-104).
+-- New event types default to 'other' category via ELSE clause.
 
 COPY (
     WITH events_h3 AS (
@@ -124,17 +136,17 @@ COPY (
         -- Each cell gets one row with 8 category integers + type_counts array
         SELECT
             h3_cell,
-            SUM(type_count) AS total_count,
+            CAST(SUM(type_count) AS INTEGER) AS total_count,
 
-            -- Category counts (8 pre-computed integers)
-            SUM(CASE WHEN category = 'traffic' THEN type_count ELSE 0 END) AS traffic_count,
-            SUM(CASE WHEN category = 'property' THEN type_count ELSE 0 END) AS property_count,
-            SUM(CASE WHEN category = 'violence' THEN type_count ELSE 0 END) AS violence_count,
-            SUM(CASE WHEN category = 'narcotics' THEN type_count ELSE 0 END) AS narcotics_count,
-            SUM(CASE WHEN category = 'fraud' THEN type_count ELSE 0 END) AS fraud_count,
-            SUM(CASE WHEN category = 'public_order' THEN type_count ELSE 0 END) AS public_order_count,
-            SUM(CASE WHEN category = 'weapons' THEN type_count ELSE 0 END) AS weapons_count,
-            SUM(CASE WHEN category = 'other' THEN type_count ELSE 0 END) AS other_count,
+            -- Category counts (8 pre-computed integers, explicitly cast for correctness)
+            CAST(SUM(CASE WHEN category = 'traffic' THEN type_count ELSE 0 END) AS INTEGER) AS traffic_count,
+            CAST(SUM(CASE WHEN category = 'property' THEN type_count ELSE 0 END) AS INTEGER) AS property_count,
+            CAST(SUM(CASE WHEN category = 'violence' THEN type_count ELSE 0 END) AS INTEGER) AS violence_count,
+            CAST(SUM(CASE WHEN category = 'narcotics' THEN type_count ELSE 0 END) AS INTEGER) AS narcotics_count,
+            CAST(SUM(CASE WHEN category = 'fraud' THEN type_count ELSE 0 END) AS INTEGER) AS fraud_count,
+            CAST(SUM(CASE WHEN category = 'public_order' THEN type_count ELSE 0 END) AS INTEGER) AS public_order_count,
+            CAST(SUM(CASE WHEN category = 'weapons' THEN type_count ELSE 0 END) AS INTEGER) AS weapons_count,
+            CAST(SUM(CASE WHEN category = 'other' THEN type_count ELSE 0 END) AS INTEGER) AS other_count,
 
             -- Sparse type_counts: only types present in this cell, sorted by count descending
             LIST(

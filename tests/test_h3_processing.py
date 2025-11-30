@@ -308,6 +308,24 @@ def test_aggregate_events_to_h3_creates_valid_output(
         # H3 cell format verification (15-character hex string)
         assert df["h3_cell"].str.len().eq(15).all(), "Invalid H3 cell format"
 
+        # Type verification - count columns should be integers, not floats
+        # DuckDB INTEGER maps to int32 in pandas (sufficient for event counts)
+        count_columns = [
+            "total_count",
+            "traffic_count",
+            "property_count",
+            "violence_count",
+            "narcotics_count",
+            "fraud_count",
+            "public_order_count",
+            "weapons_count",
+            "other_count",
+        ]
+        for col in count_columns:
+            assert df[col].dtype == "int32", (
+                f"Column {col} should be int32 (INTEGER), got {df[col].dtype}"
+            )
+
     finally:
         conn.close()
 
@@ -557,3 +575,99 @@ def test_aggregate_events_atomic_write_pattern(
     # Verify final file exists and temp file was cleaned up
     assert output_file.exists(), "Final output file not created"
     assert not temp_file.exists(), "Temporary file not cleaned up after success"
+
+
+@pytest.mark.integration
+def test_aggregate_events_handles_partial_population(
+    events_fixture: Path,
+    tmp_path: Path,
+    config: Config,
+) -> None:
+    """Test LEFT JOIN behavior: events without population data are preserved.
+
+    Verifies critical LEFT JOIN semantics:
+    - Events in cells without population data still appear in output
+    - Missing population is represented as 0.0 (not NULL or dropped)
+    - Rate calculation is 0.0 for cells without population
+    - All events are preserved (none dropped due to missing population)
+    - Only cells with sufficient population get non-zero rates
+
+    This tests a realistic scenario where population data doesn't cover all
+    geographic areas with crime events (e.g., new developments, data gaps).
+    """
+    output_file = tmp_path / "events_partial_pop.parquet"
+
+    # Create partial population covering only 10 H3 cells
+    # This ensures some event cells will lack population data
+    partial_pop_file = tmp_path / "partial_population.parquet"
+    conn = duckdb.connect(":memory:")
+    conn.execute("INSTALL h3 FROM community; LOAD h3;")
+    try:
+        conn.execute(f"""
+            COPY (
+                WITH h3_cells AS (
+                    SELECT DISTINCT
+                        h3_latlng_to_cell_string(latitude, longitude, 5) as h3_cell
+                    FROM '{events_fixture}'
+                )
+                SELECT h3_cell, 1000.0 as population
+                FROM h3_cells
+                LIMIT 10
+            ) TO '{partial_pop_file}' (FORMAT PARQUET)
+        """)
+
+        # Run aggregation with partial population
+        aggregate_events_to_h3(
+            events_file=events_fixture,
+            population_file=partial_pop_file,
+            output_file=output_file,
+            resolution=5,
+            config=config,
+        )
+
+        # Verify LEFT JOIN preserved all event cells
+        results = conn.execute(f"""
+            SELECT
+                COUNT(*) as total_cells,
+                SUM(CASE WHEN population > 0 THEN 1 ELSE 0 END) as cells_with_pop,
+                SUM(CASE WHEN population = 0 THEN 1 ELSE 0 END) as cells_without_pop,
+                SUM(total_count) as total_events
+            FROM '{output_file}'
+        """).fetchone()
+
+        assert results is not None
+        total_cells, cells_with_pop, cells_without_pop, total_events = results
+
+        # Verify population coverage
+        assert cells_with_pop == 10, "Should have exactly 10 cells with population"
+        assert cells_without_pop > 0, "Should have cells without population (LEFT JOIN)"
+        assert total_cells == cells_with_pop + cells_without_pop, "Cell counts should sum"
+
+        # Verify all events preserved (none dropped)
+        input_events = conn.execute(f"SELECT COUNT(*) FROM '{events_fixture}'").fetchone()
+        assert input_events is not None
+        assert total_events == input_events[0], (
+            f"Events should be preserved: input={input_events[0]}, output={total_events}"
+        )
+
+        # Verify rate calculation for cells without population
+        zero_pop_rates = conn.execute(f"""
+            SELECT DISTINCT rate_per_10000
+            FROM '{output_file}'
+            WHERE population = 0
+        """).fetchall()
+
+        assert len(zero_pop_rates) == 1, "All zero-pop cells should have same rate"
+        assert zero_pop_rates[0][0] == 0.0, "Zero population should yield zero rate"
+
+        # Verify rates calculated for cells with population
+        nonzero_rates = conn.execute(f"""
+            SELECT COUNT(*) FROM '{output_file}'
+            WHERE population > 0 AND rate_per_10000 > 0
+        """).fetchone()
+
+        assert nonzero_rates is not None
+        assert nonzero_rates[0] > 0, "Should have non-zero rates for populated cells"
+
+    finally:
+        conn.close()

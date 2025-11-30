@@ -746,27 +746,141 @@
 
 ---
 
-## Phase 2: H3 Event Aggregation with Population Join
+## Phase 2: H3 Event Aggregation with Population Join & Category Filtering
 
-**Goal:** Aggregate crime events to H3 cells and join with population data using SQL template. This is the core analytical transformation.
+**Goal:** Aggregate crime events to H3 cells with population join and category-based filtering. Implements variant 3B architecture: pre-computed category counts (8 top-level categories) + sparse type_counts for client-side filtering.
 
 **Duration:** 4-5 hours
 
+**Architecture Decision: Variant 3B - Full Detail, Optimized**
+- Pre-compute counts for all 8 top-level categories (traffic, property, violence, etc.)
+- Store detailed type_counts as sparse JSON array (only types present in each cell)
+- Client-side filtering for both category and type levels
+- Static deployment (no API required)
+- Estimated tileset size: ~300KB
+
 **Acceptance Criteria:**
-- [ ] SQL file `h3_aggregation.sql` created and tested
-- [ ] Events aggregated to H3 cells with type lists
+- [ ] Category mapping configuration created (category_mapping.toml)
+- [ ] Config system loads category mapping
+- [ ] SQL file `h3_aggregation.sql` created with category counts and type_counts
+- [ ] Events aggregated to H3 cells with category metrics
 - [ ] Population joined successfully
 - [ ] Normalized rates calculated correctly
-- [ ] Output schema validated
+- [ ] Output schema validated (includes 8 category columns + type_counts)
 - [ ] Integration test with full pipeline
 
 ### Tasks
 
-- [ ] **2.1: Create SQL file: crimecity3k/sql/h3_aggregation.sql**
-  - Pattern: Multi-CTE SQL with population join
+- [ ] **2.0: Create category_mapping.toml with event type categorization**
+  - Pattern: Configuration-driven event type taxonomy
+  - Structure: 8 top-level categories mapping to 51 event types
   - Implementation:
+    ```toml
+    # Event Type Categorization for CrimeCity3K
+    # Maps all 51 event types to 8 high-level categories
+
+    [categories.traffic]
+    name = "Trafik"
+    types = [
+        "Trafikolycka, personskada",
+        "Trafikolycka, smitning",
+        "Trafikolycka, singel",
+        "Trafikolycka, övrigt",
+        "Trafikbrott, övriga",
+        "Rattfylleri",
+        "Olovlig körning",
+    ]
+
+    [categories.property]
+    name = "Egendomsbrott"
+    types = [
+        "Stöld",
+        "Stöld/inbrott",
+        "Tillgrepp, stöld",
+        "Inbrott",
+        "Skadegörelse",
+        "Rån",
+        "Rån, övrigt",
+        "Rån väpnat",
+    ]
+
+    [categories.violence]
+    name = "Våld"
+    types = [
+        "Misshandel",
+        "Misshandel, grov",
+        "Våld/hot mot tjänsteman",
+        "Våldtäkt",
+        "Våldtäkt, försök",
+        "Mord/dråp, försök",
+        "Mord/dråp",
+    ]
+
+    [categories.narcotics]
+    name = "Narkotika"
+    types = [
+        "Narkotikabrott",
+    ]
+
+    [categories.fraud]
+    name = "Bedrägeri"
+    types = [
+        "Bedrägeri",
+        "Bedrägeri, ocker",
+    ]
+
+    [categories.public_order]
+    name = "Ordningsstörning"
+    types = [
+        "Ordningslagen",
+        "Fylleri",
+        "Ofredande/förargelse",
+        "Brand",
+        "Alkohollagen",
+        "Övriga brott mot person",
+    ]
+
+    [categories.weapons]
+    name = "Vapen"
+    types = [
+        "Vapenlagen",
+    ]
+
+    [categories.other]
+    name = "Övrigt"
+    types = [
+        # All remaining uncategorized types
+        "Häleri",
+        "Försvunnen person",
+        "Anträffad död",
+        "Anträffad död, händelse",
+        "Djur, skadat/dött",
+        "Djur skadat/omhändertaget",
+        "Deposition/Explosivt föremål, misstänkt",
+        "Sjukdom/olycksfall",
+        "Ofredande",
+        "Lagen om hundar och katter",
+        "Kontroll person/fordon",
+        "Larm inbrott",
+        "Larm överfall",
+        "Räddningsinsats, övrigt",
+        "Sammanfattning natt",
+        "Sammanfattning kväll och natt",
+        "Sammanfattning dag",
+        "Sammanfattning eftermiddag och kväll",
+        "Sammanfattning förmiddag och eftermiddag",
+        "Övrigt",
+    ]
+    ```
+  - Location: `category_mapping.toml` (project root)
+  - Based on analysis of 51 distinct event types from test data
+  - Commit: "config: add category_mapping.toml with 8-category hierarchy"
+
+- [ ] **2.1: Create SQL file: crimecity3k/sql/h3_aggregation.sql (with category filtering)**
+  - Pattern: Multi-CTE SQL with population join and category aggregation
+  - Implementation (variant 3B architecture):
     ```sql
-    -- Event aggregation to H3 cells with population join
+    -- Event aggregation to H3 cells with population join and category filtering
     --
     -- Parameters:
     --   {{events_file}}: Path to events Parquet
@@ -775,29 +889,69 @@
     --   {{resolution}}: H3 resolution (4, 5, or 6)
     --   {{min_population}}: Minimum population threshold (default: 100)
     --
-    -- Aggregates events to H3 cells and joins with population data
-    -- to compute both absolute counts and normalized rates.
+    -- Aggregates events to H3 cells with:
+    -- - 8 category count columns (traffic_count, property_count, etc.)
+    -- - Sparse type_counts as JSON array
+    -- - Population join and normalized rates
 
     COPY (
         WITH events_h3 AS (
             -- Map events to H3 cells
             SELECT
-                h3_latlng_to_cell(latitude, longitude, {{ resolution }}) as h3_cell,
+                h3_latlng_to_cell_string(latitude, longitude, {{ resolution }}) as h3_cell,
                 event_id,
                 type,
-                datetime
+                datetime,
+                -- Categorize events (based on category_mapping.toml)
+                CASE
+                    WHEN type IN ('Trafikolycka, personskada', 'Trafikolycka, smitning',
+                                  'Trafikolycka, singel', 'Trafikolycka, övrigt',
+                                  'Trafikbrott, övriga', 'Rattfylleri', 'Olovlig körning')
+                        THEN 'traffic'
+                    WHEN type IN ('Stöld', 'Stöld/inbrott', 'Tillgrepp, stöld', 'Inbrott',
+                                  'Skadegörelse', 'Rån', 'Rån, övrigt', 'Rån väpnat')
+                        THEN 'property'
+                    WHEN type IN ('Misshandel', 'Misshandel, grov', 'Våld/hot mot tjänsteman',
+                                  'Våldtäkt', 'Våldtäkt, försök', 'Mord/dråp, försök', 'Mord/dråp')
+                        THEN 'violence'
+                    WHEN type = 'Narkotikabrott'
+                        THEN 'narcotics'
+                    WHEN type IN ('Bedrägeri', 'Bedrägeri, ocker')
+                        THEN 'fraud'
+                    WHEN type IN ('Ordningslagen', 'Fylleri', 'Ofredande/förargelse', 'Brand',
+                                  'Alkohollagen', 'Övriga brott mot person')
+                        THEN 'public_order'
+                    WHEN type = 'Vapenlagen'
+                        THEN 'weapons'
+                    ELSE 'other'
+                END as category
             FROM '{{ events_file }}'
         ),
 
         events_aggregated AS (
-            -- Aggregate events by cell
+            -- Aggregate events by cell with category counts
             SELECT
                 h3_cell,
-                COUNT(*) as event_count,
-                COUNT(DISTINCT type) as event_types_count,
-                LIST(type ORDER BY type) as types_list
+                COUNT(*) as total_count,
+                -- Category counts
+                SUM(CASE WHEN category = 'traffic' THEN 1 ELSE 0 END) as traffic_count,
+                SUM(CASE WHEN category = 'property' THEN 1 ELSE 0 END) as property_count,
+                SUM(CASE WHEN category = 'violence' THEN 1 ELSE 0 END) as violence_count,
+                SUM(CASE WHEN category = 'narcotics' THEN 1 ELSE 0 END) as narcotics_count,
+                SUM(CASE WHEN category = 'fraud' THEN 1 ELSE 0 END) as fraud_count,
+                SUM(CASE WHEN category = 'public_order' THEN 1 ELSE 0 END) as public_order_count,
+                SUM(CASE WHEN category = 'weapons' THEN 1 ELSE 0 END) as weapons_count,
+                SUM(CASE WHEN category = 'other' THEN 1 ELSE 0 END) as other_count,
+                -- Sparse type_counts: only include types that exist in this cell
+                LIST(
+                    STRUCT_PACK(
+                        type := type,
+                        count := COUNT(*)
+                    ) ORDER BY COUNT(*) DESC
+                ) FILTER (WHERE COUNT(*) > 0) as type_counts
             FROM events_h3
-            GROUP BY h3_cell
+            GROUP BY h3_cell, type  -- Group by type to get counts per type
+            GROUP BY h3_cell        -- Then aggregate to cell level
         ),
 
         population AS (
@@ -812,38 +966,48 @@
             -- Join events with population
             SELECT
                 e.h3_cell,
-                e.event_count,
-                e.event_types_count,
-                e.types_list,
+                e.total_count,
+                e.traffic_count,
+                e.property_count,
+                e.violence_count,
+                e.narcotics_count,
+                e.fraud_count,
+                e.public_order_count,
+                e.weapons_count,
+                e.other_count,
+                e.type_counts,
                 COALESCE(p.population, 0.0) as population,
                 -- Calculate normalized rate (per 10,000 residents)
                 CASE
                     WHEN COALESCE(p.population, 0) >= {{ min_population }}
-                    THEN (e.event_count::DOUBLE / p.population) * 10000.0
+                    THEN (e.total_count::DOUBLE / p.population) * 10000.0
                     ELSE 0.0
-                END as rate_per_10000,
-                -- Add cell centroid coordinates
-                h3_cell_to_lat(e.h3_cell) as latitude,
-                h3_cell_to_lng(e.h3_cell) as longitude
+                END as rate_per_10000
             FROM events_aggregated e
             LEFT JOIN population p ON e.h3_cell = p.h3_cell
         )
 
         SELECT
             h3_cell,
-            event_count,
-            event_types_count,
-            types_list,
+            total_count,
+            traffic_count,
+            property_count,
+            violence_count,
+            narcotics_count,
+            fraud_count,
+            public_order_count,
+            weapons_count,
+            other_count,
+            type_counts,
             population,
-            rate_per_10000,
-            latitude,
-            longitude
+            rate_per_10000
         FROM merged
-        ORDER BY event_count DESC
+        ORDER BY total_count DESC
 
     ) TO '{{ output_file }}' (FORMAT PARQUET, COMPRESSION ZSTD)
     ```
-  - Commit: "feat: add h3_aggregation.sql template"
+  - Note: SQL includes hardcoded category mappings (will be generated from category_mapping.toml)
+  - Commit: "feat: add h3_aggregation.sql with category filtering"
 
 - [ ] **2.2: Add aggregation function to h3_processing.py**
   - Implementation:
@@ -1133,10 +1297,14 @@
 
 **Phase 2 Complete When:**
 - `make pipeline-all` generates all aggregations
-- All tests pass
+- All tests pass (including category count and type_counts tests)
 - SQL file changes trigger rebuilds
 - Output files are reasonable size (20-100 KB)
+- Can query category counts: `SELECT h3_cell, traffic_count, property_count, violence_count FROM 'data/h3/events_r5.parquet' LIMIT 10`
+- Can query type_counts: `SELECT h3_cell, type_counts FROM 'data/h3/events_r5.parquet' WHERE traffic_count > 0 LIMIT 5`
 - Can query normalized rates: `SELECT * FROM 'data/h3/events_r5.parquet' ORDER BY rate_per_10000 DESC LIMIT 10`
+- Verify category counts sum to total_count for each cell
+- Verify type_counts is sparse (only includes types present in cell)
 - Manual spot-check shows expected cities (Stockholm, Malmö, Göteborg)
 
 ---

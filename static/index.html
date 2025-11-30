@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CrimeCity3K - Swedish Police Events Map</title>
+    <link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet">
+    <link href="style.css" rel="stylesheet">
+</head>
+<body>
+    <div id="map"></div>
+
+    <div id="controls">
+        <div class="control-group">
+            <label for="category-filter">Category:</label>
+            <select id="category-filter">
+                <option value="all">All Categories</option>
+                <option value="traffic">Traffic</option>
+                <option value="property">Property</option>
+                <option value="violence">Violence</option>
+                <option value="narcotics">Narcotics</option>
+                <option value="fraud">Fraud</option>
+                <option value="public_order">Public Order</option>
+                <option value="weapons">Weapons</option>
+                <option value="other">Other</option>
+            </select>
+        </div>
+
+        <div class="control-group">
+            <label class="toggle-label">
+                <span id="display-mode-label">Absolute</span>
+                <label class="toggle-switch">
+                    <input type="checkbox" id="display-mode-toggle">
+                    <span class="toggle-slider"></span>
+                </label>
+            </label>
+        </div>
+
+        <div class="resolution-indicator">
+            H3: <span id="current-resolution">-</span>
+        </div>
+    </div>
+
+    <div id="legend">
+        <h4 id="legend-title">Event Count</h4>
+        <div id="legend-items"></div>
+        <div class="legend-footer">
+            Data: <a href="https://polisen.se" target="_blank" rel="noopener">Swedish Police</a>,
+            <a href="https://scb.se" target="_blank" rel="noopener">SCB</a>
+        </div>
+    </div>
+
+    <div id="cell-details">
+        <div class="details-header">
+            <h4>Cell Details</h4>
+            <button id="close-details" aria-label="Close">&times;</button>
+        </div>
+        <div id="details-content"></div>
+    </div>
+
+    <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+    <script src="https://unpkg.com/pmtiles@3.2.0/dist/pmtiles.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>

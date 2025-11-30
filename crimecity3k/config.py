@@ -94,7 +94,21 @@ class CategoryMapping(BaseModel):
         Raises:
             CategoryMappingError: If file not found or validation fails
         """
-        raise NotImplementedError("CategoryMapping.from_file not yet implemented")
+        path = Path(path)
+
+        if not path.exists():
+            raise CategoryMappingError(f"Category mapping not found: {path}")
+
+        try:
+            with open(path, "rb") as f:
+                data = tomllib.load(f)
+        except tomllib.TOMLDecodeError as e:
+            raise CategoryMappingError(f"Invalid TOML syntax: {e}") from e
+
+        try:
+            return cls(**data)
+        except Exception as e:
+            raise CategoryMappingError(f"Invalid category mapping structure: {e}") from e
 
 
 class CategoryMappingError(Exception):

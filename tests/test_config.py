@@ -83,7 +83,7 @@ def test_category_mapping_loads_from_file() -> None:
     assert len(all_types) == len(set(all_types)), "Duplicate event types found across categories"
 
     # Verify total count matches known data
-    assert len(all_types) == 51, f"Expected 51 event types, found {len(all_types)}"
+    assert len(all_types) == 52, f"Expected 52 event types, found {len(all_types)}"
 
 
 def test_category_mapping_specific_categories() -> None:

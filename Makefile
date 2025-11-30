@@ -33,10 +33,14 @@ help:
 	@echo ""
 	@echo "Event aggregation pipeline:"
 	@echo "  pipeline-h3                    - Aggregate events for all H3 resolutions"
-	@echo "  pipeline-all                   - Build complete pipeline (population + events)"
 	@echo "  data/h3/events_r4.parquet      - Aggregate to H3 resolution 4 (~25km)"
 	@echo "  data/h3/events_r5.parquet      - Aggregate to H3 resolution 5 (~8km)"
 	@echo "  data/h3/events_r6.parquet      - Aggregate to H3 resolution 6 (~3km)"
+	@echo ""
+	@echo "Tile generation pipeline:"
+	@echo "  pipeline-geojson               - Export all resolutions to GeoJSONL"
+	@echo "  pipeline-pmtiles               - Generate all PMTiles (requires Tippecanoe)"
+	@echo "  pipeline-all                   - Build complete pipeline (population + events + tiles)"
 
 install:
 	uv sync --all-extras
@@ -121,5 +125,58 @@ pipeline-h3: $(H3_DIR)/events_r4.parquet \
 
 # Convenience target: Build complete pipeline (population + events)
 .PHONY: pipeline-all
-pipeline-all: pipeline-h3
+pipeline-all: pipeline-pmtiles
 	@echo "═══ Complete pipeline ready ═══"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Tile Generation Pipeline
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# Subdirectories for tiles
+GEOJSONL_DIR := $(TILES_DIR)/geojsonl
+PMTILES_DIR := $(TILES_DIR)/pmtiles
+
+# Pattern rule: Export H3 aggregated events to GeoJSONL
+# Example: make data/tiles/geojsonl/h3_r5.geojsonl.gz
+$(GEOJSONL_DIR)/h3_r%.geojsonl.gz: $(H3_DIR)/events_r%.parquet \
+                                    $(SQL_DIR)/h3_to_geojson.sql
+	@echo "═══ Exporting H3 r$* to GeoJSONL ═══"
+	@mkdir -p $(GEOJSONL_DIR)
+	uv run python -c "import duckdb; from pathlib import Path; \
+		from crimecity3k.tile_generation import export_h3_to_geojson; \
+		conn = duckdb.connect(); \
+		conn.execute('INSTALL h3 FROM community; LOAD h3; INSTALL spatial; LOAD spatial'); \
+		conn.execute(\"CREATE VIEW events AS SELECT * FROM '$(H3_DIR)/events_r$*.parquet'\"); \
+		export_h3_to_geojson(conn, 'events', Path('$@')); \
+		conn.close()"
+	@echo "✓ GeoJSONL export complete: $@ ($$(du -h $@ | cut -f1))"
+
+# Pattern rule: Generate PMTiles from GeoJSONL using Tippecanoe
+# Example: make data/tiles/pmtiles/h3_r5.pmtiles
+$(PMTILES_DIR)/h3_r%.pmtiles: $(GEOJSONL_DIR)/h3_r%.geojsonl.gz
+	@echo "═══ Generating PMTiles for H3 r$* ═══"
+	@mkdir -p $(PMTILES_DIR)
+	uv run python -c "from pathlib import Path; \
+		from crimecity3k.pmtiles import generate_pmtiles; \
+		generate_pmtiles(Path('$<'), Path('$@'), $*)"
+	@echo "✓ PMTiles complete: $@ ($$(du -h $@ | cut -f1))"
+
+# Convenience target: Build all GeoJSONL exports
+.PHONY: pipeline-geojson
+pipeline-geojson: $(GEOJSONL_DIR)/h3_r4.geojsonl.gz \
+                  $(GEOJSONL_DIR)/h3_r5.geojsonl.gz \
+                  $(GEOJSONL_DIR)/h3_r6.geojsonl.gz
+	@echo "═══ GeoJSONL export pipeline complete ═══"
+	@echo "  R4: $(GEOJSONL_DIR)/h3_r4.geojsonl.gz ($$(du -h $(GEOJSONL_DIR)/h3_r4.geojsonl.gz | cut -f1))"
+	@echo "  R5: $(GEOJSONL_DIR)/h3_r5.geojsonl.gz ($$(du -h $(GEOJSONL_DIR)/h3_r5.geojsonl.gz | cut -f1))"
+	@echo "  R6: $(GEOJSONL_DIR)/h3_r6.geojsonl.gz ($$(du -h $(GEOJSONL_DIR)/h3_r6.geojsonl.gz | cut -f1))"
+
+# Convenience target: Build all PMTiles
+.PHONY: pipeline-pmtiles
+pipeline-pmtiles: $(PMTILES_DIR)/h3_r4.pmtiles \
+                  $(PMTILES_DIR)/h3_r5.pmtiles \
+                  $(PMTILES_DIR)/h3_r6.pmtiles
+	@echo "═══ PMTiles generation pipeline complete ═══"
+	@echo "  R4: $(PMTILES_DIR)/h3_r4.pmtiles ($$(du -h $(PMTILES_DIR)/h3_r4.pmtiles | cut -f1))"
+	@echo "  R5: $(PMTILES_DIR)/h3_r5.pmtiles ($$(du -h $(PMTILES_DIR)/h3_r5.pmtiles | cut -f1))"
+	@echo "  R6: $(PMTILES_DIR)/h3_r6.pmtiles ($$(du -h $(PMTILES_DIR)/h3_r6.pmtiles | cut -f1))"

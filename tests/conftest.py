@@ -7,7 +7,6 @@ import duckdb
 import pytest
 
 from crimecity3k.config import Config
-from crimecity3k.data_access import create_configured_connection
 
 
 @pytest.fixture
@@ -32,6 +31,8 @@ def duckdb_conn(
 ) -> Generator[duckdb.DuckDBPyConnection]:
     """In-memory DuckDB with h3 and spatial extensions.
 
+    Following aviation-anomaly pattern for reliable extension loading in CI.
+
     Args:
         test_config: Test configuration fixture
 
@@ -41,7 +42,26 @@ def duckdb_conn(
     Note:
         Connection is automatically closed after test
     """
-    conn = create_configured_connection(test_config, extensions=["h3", "spatial"])
+    conn = duckdb.connect(":memory:")
+
+    # Apply basic DuckDB settings
+    conn.execute(f"SET memory_limit = '{test_config.duckdb.memory_limit}'")
+    conn.execute(f"SET threads = {test_config.duckdb.threads}")
+
+    # Install and load spatial extension (core extension)
+    try:
+        conn.execute("INSTALL spatial")
+        conn.execute("LOAD spatial")
+    except Exception as e:
+        pytest.skip(f"Spatial extension not available: {e}")
+
+    # Install and load H3 extension from community repository
+    try:
+        conn.execute("INSTALL h3 FROM community")
+        conn.execute("LOAD h3")
+    except Exception as e:
+        pytest.fail(f"H3 extension is required but failed to load: {e}")
+
     yield conn
     conn.close()
 

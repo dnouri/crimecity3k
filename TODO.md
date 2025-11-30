@@ -873,7 +873,8 @@
     ]
     ```
   - Location: `category_mapping.toml` (project root)
-  - Based on analysis of 51 distinct event types from test data
+  - Based on analysis of 52 distinct event types from Polisen.se data
+  - Note: 52 types not 51 - includes both "Ofredande" and "Ofredande/förargelse"
   - Commit: "config: add category_mapping.toml with 8-category hierarchy"
 
 - [ ] **2.1: Create SQL file: crimecity3k/sql/h3_aggregation.sql (with category filtering)**

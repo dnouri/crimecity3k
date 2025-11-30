@@ -1,10 +1,7 @@
 """Shared pytest fixtures for CrimeCity3K tests."""
 
-import http.server
-import os
+import multiprocessing
 import socket
-import socketserver
-import threading
 import time
 from collections.abc import Generator
 from pathlib import Path
@@ -24,43 +21,41 @@ def _find_free_port() -> int:
         return port
 
 
-class _QuietHTTPHandler(http.server.SimpleHTTPRequestHandler):
-    """HTTP handler that suppresses log output."""
+def _run_server(port: int, root_dir: Path) -> None:
+    """Run Starlette server in subprocess.
 
-    def log_message(self, format: str, *args: object) -> None:  # noqa: A002
-        """Suppress all log output."""
-        pass
+    This server supports HTTP Range requests, which PMTiles requires.
+    """
+    import uvicorn
+
+    from crimecity3k.dev_server import create_app
+
+    app = create_app(root_dir)
+    uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")
 
 
 @pytest.fixture(scope="module")
 def live_server() -> Generator[str]:
     """Start a static file server for E2E tests.
 
-    Serves the project root directory on a random available port.
-    The server runs in a background thread during the test module.
+    Uses Starlette's StaticFiles which supports HTTP Range requests,
+    required for PMTiles to function properly.
 
     Yields:
         Server URL (e.g., "http://localhost:8080")
     """
     port = _find_free_port()
-    server_url = f"http://localhost:{port}"
+    server_url = f"http://127.0.0.1:{port}"
     project_root = Path(__file__).parent.parent
 
-    # Change to project root to serve files
-    original_cwd = os.getcwd()
-    os.chdir(project_root)
-
-    httpd = socketserver.TCPServer(("", port), _QuietHTTPHandler)
-
-    # Run server in background thread
-    server_thread = threading.Thread(target=httpd.serve_forever)
-    server_thread.daemon = True
-    server_thread.start()
+    # Start server in subprocess (uvicorn needs its own process)
+    server_process = multiprocessing.Process(target=_run_server, args=(port, project_root))
+    server_process.start()
 
     # Wait for server to be ready
     import requests  # type: ignore[import-untyped]
 
-    for _ in range(20):
+    for _ in range(30):
         try:
             response = requests.get(f"{server_url}/static/index.html", timeout=1)
             if response.status_code == 200:
@@ -71,8 +66,8 @@ def live_server() -> Generator[str]:
     yield server_url
 
     # Cleanup
-    httpd.shutdown()
-    os.chdir(original_cwd)
+    server_process.terminate()
+    server_process.join(timeout=5)
 
 
 @pytest.fixture

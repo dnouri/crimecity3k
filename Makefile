@@ -72,10 +72,7 @@ test-e2e: ## Run E2E browser tests with Playwright
 	uv run pytest tests/test_frontend_e2e.py -v -m e2e
 
 serve: ## Start local development server at http://localhost:8080
-	@echo "Starting development server..."
-	@echo "View at: http://localhost:8080/static/index.html"
-	@echo "Press Ctrl+C to stop"
-	uv run python -m http.server 8080
+	uv run python -m crimecity3k.dev_server --port 8080
 
 clean: ## Remove generated files and caches
 	rm -rf $(H3_DIR) $(TILES_DIR)

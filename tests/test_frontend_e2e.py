@@ -212,3 +212,104 @@ class TestFrontendE2E:
         # Resolution indicator
         resolution = page.locator("#current-resolution")
         expect(resolution).to_be_visible()
+
+    def test_tiles_actually_render(self, page: Page, live_server: str) -> None:
+        """Test that H3 tile data actually renders on the map.
+
+        This is a critical test that verifies PMTiles are being fetched and
+        rendered correctly. It would have caught the HTTP Range request bug
+        where the server didn't support byte-range requests required by PMTiles.
+        """
+        page.goto(f"{live_server}/static/index.html")
+        page.wait_for_selector("#map canvas", timeout=15000)
+        time.sleep(5)  # Wait for tiles to load and render
+
+        # Query rendered features - this is the critical assertion
+        # If PMTiles aren't loading properly, this will return 0
+        features = page.evaluate("""
+            () => {
+                try {
+                    const features = window.map.queryRenderedFeatures({
+                        layers: ['h3-cells']
+                    });
+                    return {
+                        count: features.length,
+                        hasData: features.length > 0,
+                        sample: features.length > 0 ? {
+                            h3_cell: features[0].properties.h3_cell,
+                            total_count: features[0].properties.total_count
+                        } : null
+                    };
+                } catch (e) {
+                    return { error: e.message, count: 0, hasData: false };
+                }
+            }
+        """)
+
+        assert features.get("error") is None, f"Error querying features: {features.get('error')}"
+        assert features["hasData"], (
+            "No H3 tiles rendered! This likely means PMTiles failed to load. "
+            "Check that the server supports HTTP Range requests."
+        )
+        assert features["count"] > 0, "Expected at least one rendered feature"
+        assert features["sample"] is not None, "Sample feature should exist"
+        assert features["sample"]["h3_cell"] is not None, "Feature should have h3_cell property"
+
+    def test_cell_click_shows_details(self, page: Page, live_server: str) -> None:
+        """Test that clicking an H3 cell shows the details panel.
+
+        This verifies the click interaction works end-to-end.
+        """
+        page.goto(f"{live_server}/static/index.html")
+        page.wait_for_selector("#map canvas", timeout=15000)
+        time.sleep(5)  # Wait for tiles to render
+
+        # First verify we have features to click
+        feature_count = page.evaluate("""
+            () => window.map.queryRenderedFeatures({layers: ['h3-cells']}).length
+        """)
+        assert feature_count > 0, "Need rendered features to test click interaction"
+
+        # Details panel should be hidden initially
+        details_panel = page.locator("#cell-details")
+        assert not details_panel.is_visible(), "Details panel should be hidden initially"
+
+        # Find a feature and click its center
+        click_result = page.evaluate("""
+            () => {
+                const features = window.map.queryRenderedFeatures({layers: ['h3-cells']});
+                if (features.length === 0) return { success: false, error: 'No features' };
+
+                // Get the center of the first feature's bounding box
+                const feature = features[0];
+                const bounds = feature.geometry.coordinates[0];
+                let sumX = 0, sumY = 0;
+                for (const coord of bounds) {
+                    const point = window.map.project(coord);
+                    sumX += point.x;
+                    sumY += point.y;
+                }
+                const centerX = sumX / bounds.length;
+                const centerY = sumY / bounds.length;
+
+                return {
+                    success: true,
+                    x: centerX,
+                    y: centerY,
+                    h3_cell: feature.properties.h3_cell
+                };
+            }
+        """)
+
+        if click_result.get("success"):
+            # Click on the feature
+            page.click("#map canvas", position={"x": click_result["x"], "y": click_result["y"]})
+            time.sleep(0.5)
+
+            # Details panel should now be visible
+            assert details_panel.is_visible(), "Details panel should show after clicking a cell"
+
+            # Details content should have data
+            details_content = page.locator("#details-content")
+            content_text = details_content.inner_text()
+            assert "Total Events" in content_text, "Details should show Total Events"

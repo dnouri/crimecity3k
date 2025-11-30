@@ -30,6 +30,13 @@ help:
 	@echo "  data/h3/population_r4.parquet  - Convert to H3 resolution 4 (~25km)"
 	@echo "  data/h3/population_r5.parquet  - Convert to H3 resolution 5 (~8km)"
 	@echo "  data/h3/population_r6.parquet  - Convert to H3 resolution 6 (~3km)"
+	@echo ""
+	@echo "Event aggregation pipeline:"
+	@echo "  pipeline-h3                    - Aggregate events for all H3 resolutions"
+	@echo "  pipeline-all                   - Build complete pipeline (population + events)"
+	@echo "  data/h3/events_r4.parquet      - Aggregate to H3 resolution 4 (~25km)"
+	@echo "  data/h3/events_r5.parquet      - Aggregate to H3 resolution 5 (~8km)"
+	@echo "  data/h3/events_r6.parquet      - Aggregate to H3 resolution 6 (~3km)"
 
 install:
 	uv sync --all-extras
@@ -81,3 +88,38 @@ pipeline-population: $(H3_DIR)/population_r4.parquet \
 	@echo "  R4 (~25km): $(H3_DIR)/population_r4.parquet ($$(du -h $(H3_DIR)/population_r4.parquet | cut -f1))"
 	@echo "  R5 (~8km):  $(H3_DIR)/population_r5.parquet ($$(du -h $(H3_DIR)/population_r5.parquet | cut -f1))"
 	@echo "  R6 (~3km):  $(H3_DIR)/population_r6.parquet ($$(du -h $(H3_DIR)/population_r6.parquet | cut -f1))"
+
+# Pattern rule: Aggregate events to H3 cells with category filtering
+# Example: make data/h3/events_r5.parquet builds resolution 5
+# Depends on: events data, population data (for normalization), SQL template, config
+$(H3_DIR)/events_r%.parquet: $(DATA_DIR)/events.parquet \
+                             $(H3_DIR)/population_r%.parquet \
+                             $(SQL_DIR)/h3_aggregation.sql \
+                             $(CONFIG)
+	@echo "═══ Aggregating events to H3 resolution $* ═══"
+	@mkdir -p $(H3_DIR)
+	uv run python -c "from pathlib import Path; \
+		from crimecity3k.config import Config; \
+		from crimecity3k.h3_processing import aggregate_events_to_h3; \
+		aggregate_events_to_h3(\
+			Path('$(DATA_DIR)/events.parquet'), \
+			Path('$(H3_DIR)/population_r$*.parquet'), \
+			Path('$@'), \
+			$*, \
+			Config.from_file('$(CONFIG)'))"
+	@echo "✓ H3 aggregation complete: $@ ($$(du -h $@ | cut -f1))"
+
+# Convenience target: Build all event H3 aggregations
+.PHONY: pipeline-h3
+pipeline-h3: $(H3_DIR)/events_r4.parquet \
+             $(H3_DIR)/events_r5.parquet \
+             $(H3_DIR)/events_r6.parquet
+	@echo "═══ Event H3 aggregation pipeline complete ═══"
+	@echo "  R4 (~25km): $(H3_DIR)/events_r4.parquet ($$(du -h $(H3_DIR)/events_r4.parquet | cut -f1))"
+	@echo "  R5 (~8km):  $(H3_DIR)/events_r5.parquet ($$(du -h $(H3_DIR)/events_r5.parquet | cut -f1))"
+	@echo "  R6 (~3km):  $(H3_DIR)/events_r6.parquet ($$(du -h $(H3_DIR)/events_r6.parquet | cut -f1))"
+
+# Convenience target: Build complete pipeline (population + events)
+.PHONY: pipeline-all
+pipeline-all: pipeline-h3
+	@echo "═══ Complete pipeline ready ═══"

@@ -6,8 +6,6 @@
 
 **Test Fixture:** Week of 2024-01-15 to 2024-01-22 (476 events, 51 types, 154 locations) - representative sample from middle of dataset.
 
-**Architecture Pattern:** Follows aviation-anomaly's proven patterns for SQL execution, configuration management, and testing.
-
 ---
 
 ## Phase 0: Project Foundation & Setup ✅ COMPLETE
@@ -210,51 +208,192 @@
 
 ---
 
-## Phase 4: FastAPI Backend (Not Started)
+## Architectural Decision: Static-Only Deployment
 
-**Goal:** Serve PMTiles and provide metadata API.
+**Decision:** Deploy as fully static site. No backend server required.
 
-**Key Components:**
-- Static file serving for PMTiles
-- Metadata endpoints (resolutions, bounds, stats)
-- CORS configuration
-- Health check endpoint
+**Rationale:** The PMTiles contain all data needed for visualization:
+- 9 count columns for category filtering (client-side)
+- `type_counts` array for drill-down breakdown
+- Population and rate for normalization display
 
----
+No dynamic queries are needed - all filtering and aggregation happens client-side.
 
-## Phase 5: Web Frontend (Not Started)
+**Benefits:**
+- Zero infrastructure cost (GitHub Pages, Cloudflare Pages)
+- Global CDN by default
+- No server process to maintain
+- No security attack surface
+- Simpler deployment pipeline
 
-**Goal:** Interactive map with MapLibre GL JS + PMTiles protocol.
-
-**Key Components:**
-- MapLibre GL JS with PMTiles plugin
-- Layer switching (resolutions, categories)
-- Click interactions (popup with stats)
-- Legend with category colors
-- Responsive design
+**Future extensibility:** If individual event drill-down is needed later, a backend can be added. Current architecture doesn't preclude this.
 
 ---
 
-## Phase 6: Deployment (Not Started)
+## Phase 4: Web Frontend (Not Started)
 
-**Goal:** Deploy to static hosting or simple server.
+**Goal:** Interactive map with MapLibre GL JS loading PMTiles directly.
 
-**Options:**
-- Static: GitHub Pages, Cloudflare Pages, Netlify
-- Server: Railway, Fly.io, DigitalOcean
+**Estimated Duration:** ~5 hours
+
+**Architecture:** Vanilla JS, no build step, CDN dependencies, mobile-first CSS.
+
+```
+static/
+├── index.html          # Page structure and layout
+├── app.js              # MapLibre + PMTiles + interactions
+├── style.css           # Responsive styling with mobile breakpoints
+```
+
+**Key Deliverables:**
+
+- [ ] Basic map with PMTiles loading
+  - `static/index.html` with MapLibre GL JS from unpkg CDN
+  - `static/app.js` with PMTiles protocol registration
+  - OSM raster base layer, Sweden-centered (lat: 62.5, lon: 16.5, zoom: 5)
+  - Load single resolution (r5) to verify tiles display correctly
+
+- [ ] H3 layer with color scale
+  - Fill layer colored by `total_count`
+  - Color interpolation: light (low) → dark red (high)
+  - Cell outlines for visual clarity
+  - `static/style.css` with legend positioning
+
+- [ ] Automatic resolution switching
+  - Pre-load all three PMTiles sources (r4, r5, r6)
+  - Zoom-to-resolution mapping: z3-4→r4, z5→r5, z6+→r6
+  - Switch layers on `zoomend` event
+  - Resolution indicator in UI (current H3 level)
+
+- [ ] Display mode toggle (Absolute/Normalized)
+  - Toggle switch component
+  - Absolute mode: color by `total_count`
+  - Normalized mode: color by `rate_per_10000`
+  - Dynamic legend labels update with mode
+
+- [ ] Category filter dropdown
+  - `<select>` with "All" + 8 category options
+  - Filter expression updates layer based on `{category}_count > 0`
+  - Maintains current display mode when filtering
+
+- [ ] Click popup with cell details
+  - Show on cell click: total, rate, category breakdown, top types, population
+  - Parse `type_counts` array from tile properties
+  - Dismiss on click outside
+  - Selected cell highlight (outline)
+
+- [ ] Mobile responsiveness
+  - CSS breakpoint at 768px
+  - Bottom sheet pattern for popup on mobile
+  - Collapsible legend (tap to expand/collapse)
+  - Touch-friendly controls (44px minimum)
+
+- [ ] E2E test infrastructure
+  - Add `playwright` and `pytest-playwright` to dev dependencies
+  - `live_server` fixture in conftest.py (Python http.server on random port)
+  - Serves `static/` directory with PMTiles in `tiles/` subdirectory
+  - Server starts before tests, terminates after
+
+- [ ] E2E tests (`tests/test_frontend_e2e.py`)
+  - `@pytest.mark.e2e` marker for selective running
+  - Test map loads (canvas visible, zoom in expected range)
+  - Test PMTiles sources load (verify via `window.map.getSource()`)
+  - Test H3 layer displays (verify via `window.map.getLayer()`)
+  - Test resolution switching (set zoom via JS, check `window.currentResolution`)
+  - Test display mode toggle (click toggle, verify legend updates)
+  - Test category filter (select option, verify layer filter changes)
+  - Test click popup (click map, verify popup appears with expected content)
+  - Test filter persists across resolution changes
+
+- [ ] Cross-browser verification
+  - Playwright tests run in Chromium by default
+  - Manual spot-check in Firefox, Safari
+  - Test on actual mobile device
 
 ---
 
-## Phase 7: Documentation & Polish (Not Started)
+## Phase 5: Static Deployment (Not Started)
 
-**Goal:** Complete README, add examples, tag v1.0.0.
+**Goal:** Deploy frontend + PMTiles to static hosting.
 
-**Deliverables:**
-- Comprehensive README with screenshots
-- Data pipeline documentation
-- API documentation
-- Deployment guide
-- Contributing guidelines
+**Estimated Duration:** ~1 hour
+
+**Hosting:** GitHub Pages (simplest, integrated with repo, free).
+
+```
+gh-pages branch:
+├── index.html
+├── app.js
+├── style.css
+└── tiles/
+    ├── h3_r4.pmtiles
+    ├── h3_r5.pmtiles
+    └── h3_r6.pmtiles
+```
+
+**Key Deliverables:**
+
+- [ ] Local preview server
+  - Python `http.server` or similar for local testing
+  - Verify PMTiles load correctly from `tiles/` subdirectory
+  - Test all functionality before deploying
+
+- [ ] Makefile deploy target
+  - `make deploy` copies static files + PMTiles to deploy directory
+  - Handles directory structure (static files at root, tiles in `tiles/`)
+  - Can be run after `make pipeline-all`
+
+- [ ] GitHub Pages configuration
+  - Enable Pages in repository settings
+  - Configure to serve from `gh-pages` branch or `/docs` folder
+  - Verify deployment triggers on push
+
+- [ ] Production verification
+  - Test live URL in multiple browsers
+  - Verify PMTiles load from GitHub Pages CDN
+  - Check mobile functionality on actual device
+  - Confirm all features work as in local testing
+
+---
+
+## Phase 6: Documentation & Polish (Not Started)
+
+**Goal:** Complete README, enhance CI visibility, tag v1.0.0.
+
+**Estimated Duration:** ~2 hours
+
+**Key Deliverables:**
+
+- [ ] CI enhancement
+  - Add `dorny/test-reporter@v1` for inline test failure annotations
+  - Add `py-cov-action/python-coverage-comment-action@v3` for coverage badge
+  - Add Playwright browser install step (`uv run playwright install chromium`)
+  - JUnit XML output (`--junitxml=test-results.xml`)
+  - Proper permissions for coverage data branch
+  - Reference: https://danielnouri.org/notes/2025/11/03/modern-python-ci-with-coverage-in-2025/
+
+- [ ] README.md
+  - Coverage badge at top
+  - Project description (1-2 paragraphs)
+  - Screenshot of the map
+  - Live demo link
+  - Data sources (Swedish Police API, SCB population grid)
+  - Quick start instructions (`make install && make pipeline-all`)
+  - License
+
+- [ ] Category reference in README
+  - Table of 8 categories with example event types
+  - Explains what each category includes
+
+- [ ] Final review
+  - All tests passing
+  - `make check` clean
+  - Live demo working
+  - README accurate and complete
+
+- [ ] Tag v1.0.0 release
+  - Create annotated git tag
+  - GitHub release with changelog summary
 
 ---
 
@@ -296,13 +435,14 @@ CrimeCity3K v1 is complete when:
 - ✅ Phase 1: Population pipeline (16 tests, 3 resolutions)
 - ✅ Phase 2: Event aggregation (24 tests, category filtering)
 - ✅ Phase 3: GeoJSON + PMTiles (16 tests, full tile pipeline)
-- ⏳ Phase 4: FastAPI backend
-- ⏳ Phase 5: Web frontend
-- ⏳ Phase 6: Deployment
-- ⏳ Phase 7: Documentation
+- ⏳ Phase 4: Web frontend (static, no backend)
+- ⏳ Phase 5: Static deployment
+- ⏳ Phase 6: Documentation
 
-**Current Progress:** 4/7 phases complete (~55%)
+**Architecture Decision:** Backend skipped - PMTiles contain complete data for visualization.
 
-**Estimated Remaining:** 12-15 hours
+**Current Progress:** 4/6 phases complete (~65%)
 
-**Next Step:** Phase 4 - FastAPI Backend
+**Estimated Remaining:** ~8 hours (Phase 4: 5h, Phase 5: 1h, Phase 6: 2h)
+
+**Next Step:** Phase 4 - Web Frontend

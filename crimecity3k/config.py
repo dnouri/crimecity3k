@@ -67,3 +67,37 @@ class Config(BaseModel):
             data = tomllib.load(f)
 
         return cls(**data)
+
+
+class Category(BaseModel):
+    """Event type category configuration."""
+
+    name: str = Field(description="Display name for category")
+    types: list[str] = Field(description="Event types in this category")
+
+
+class CategoryMapping(BaseModel):
+    """Event type categorization mapping."""
+
+    categories: dict[str, Category] = Field(description="Category definitions")
+
+    @classmethod
+    def from_file(cls, path: Path | str) -> "CategoryMapping":
+        """Load category mapping from TOML file.
+
+        Args:
+            path: Path to category_mapping.toml file
+
+        Returns:
+            Validated CategoryMapping object
+
+        Raises:
+            CategoryMappingError: If file not found or validation fails
+        """
+        raise NotImplementedError("CategoryMapping.from_file not yet implemented")
+
+
+class CategoryMappingError(Exception):
+    """Category mapping configuration error."""
+
+    pass

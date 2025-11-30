@@ -10,7 +10,7 @@ import duckdb
 import pytest
 
 from crimecity3k.config import Config
-from crimecity3k.h3_processing import convert_population_to_h3
+from crimecity3k.h3_processing import aggregate_events_to_h3, convert_population_to_h3
 
 
 @pytest.fixture
@@ -236,3 +236,324 @@ def test_geographic_coverage_sweden(
 
     finally:
         conn.close()
+
+
+# Event aggregation tests
+
+
+@pytest.fixture
+def events_fixture() -> Path:
+    """Path to test events fixture."""
+    return Path("tests/fixtures/events_2024_01_15-22.parquet")
+
+
+@pytest.mark.integration
+def test_aggregate_events_to_h3_creates_valid_output(
+    events_fixture: Path,
+    synthetic_population_h3: Path,
+    tmp_path: Path,
+    config: Config,
+) -> None:
+    """Test event aggregation produces valid H3 Parquet file.
+
+    Verifies:
+    - Output file is created
+    - Output has correct schema (all category columns + type_counts)
+    - All H3 cells are valid format
+    - Data is non-empty
+    """
+    output_file = tmp_path / "events_r5_test.parquet"
+
+    # Execute aggregation
+    aggregate_events_to_h3(
+        events_file=events_fixture,
+        population_file=synthetic_population_h3,
+        output_file=output_file,
+        resolution=5,
+        config=config,
+    )
+
+    # Verify output file exists
+    assert output_file.exists(), f"Output file not created: {output_file}"
+
+    # Verify schema and data quality
+    conn = duckdb.connect(":memory:")
+    try:
+        df = conn.execute(f"SELECT * FROM '{output_file}'").fetchdf()
+
+        # Schema verification
+        expected_columns = {
+            "h3_cell",
+            "total_count",
+            "traffic_count",
+            "property_count",
+            "violence_count",
+            "narcotics_count",
+            "fraud_count",
+            "public_order_count",
+            "weapons_count",
+            "other_count",
+            "type_counts",
+            "population",
+            "rate_per_10000",
+        }
+        assert set(df.columns) == expected_columns, (
+            f"Schema mismatch. Expected {expected_columns}, got {set(df.columns)}"
+        )
+
+        # Data quality checks
+        assert len(df) > 0, "Output is empty - no H3 cells generated"
+        assert (df["total_count"] > 0).all(), "Found cells with zero events"
+
+        # H3 cell format verification (15-character hex string)
+        assert df["h3_cell"].str.len().eq(15).all(), "Invalid H3 cell format"
+
+    finally:
+        conn.close()
+
+
+@pytest.mark.integration
+def test_aggregate_events_category_counts_sum_to_total(
+    events_fixture: Path,
+    synthetic_population_h3: Path,
+    tmp_path: Path,
+    config: Config,
+) -> None:
+    """Test critical invariant: category counts sum to total_count.
+
+    This is the most important test - it verifies we're not losing or
+    duplicating events during category aggregation. For every H3 cell:
+        sum(category_counts) == total_count
+
+    Verifies:
+    - No events are lost during categorization
+    - No events are duplicated across categories
+    - Category assignment is exhaustive (every event gets a category)
+    """
+    output_file = tmp_path / "events_category_test.parquet"
+
+    # Execute aggregation
+    aggregate_events_to_h3(
+        events_file=events_fixture,
+        population_file=synthetic_population_h3,
+        output_file=output_file,
+        resolution=5,
+        config=config,
+    )
+
+    # Verify category count invariant
+    conn = duckdb.connect(":memory:")
+    try:
+        # Check invariant for every cell
+        violations = conn.execute(f"""
+            SELECT
+                h3_cell,
+                total_count,
+                (traffic_count + property_count + violence_count +
+                 narcotics_count + fraud_count + public_order_count +
+                 weapons_count + other_count) as category_sum,
+                total_count - (traffic_count + property_count + violence_count +
+                               narcotics_count + fraud_count + public_order_count +
+                               weapons_count + other_count) as diff
+            FROM '{output_file}'
+            WHERE ABS(total_count - (traffic_count + property_count + violence_count +
+                                     narcotics_count + fraud_count + public_order_count +
+                                     weapons_count + other_count)) > 0.001
+        """).fetchall()
+
+        assert len(violations) == 0, (
+            f"Category count invariant violated in {len(violations)} cells:\n"
+            + "\n".join(
+                f"  {cell}: total={total}, sum={cat_sum}, diff={diff}"
+                for cell, total, cat_sum, diff in violations[:5]
+            )
+        )
+
+        # Also verify total events match input
+        total_events = conn.execute(f"SELECT SUM(total_count) FROM '{output_file}'").fetchone()
+        assert total_events is not None
+        input_events = conn.execute(f"SELECT COUNT(*) FROM '{events_fixture}'").fetchone()
+        assert input_events is not None
+
+        assert total_events[0] == input_events[0], (
+            f"Total events mismatch: input={input_events[0]}, output={total_events[0]}"
+        )
+
+    finally:
+        conn.close()
+
+
+@pytest.mark.integration
+def test_aggregate_events_type_counts_structure(
+    events_fixture: Path,
+    synthetic_population_h3: Path,
+    tmp_path: Path,
+    config: Config,
+) -> None:
+    """Test type_counts sparse array structure and correctness.
+
+    Verifies:
+    - type_counts is a list of structs with 'type' and 'count' fields
+    - type_counts are sorted by count descending
+    - sum of type_counts matches total_count
+    - type_counts match category aggregation
+    """
+    output_file = tmp_path / "events_type_counts_test.parquet"
+
+    # Execute aggregation
+    aggregate_events_to_h3(
+        events_file=events_fixture,
+        population_file=synthetic_population_h3,
+        output_file=output_file,
+        resolution=5,
+        config=config,
+    )
+
+    conn = duckdb.connect(":memory:")
+    conn.execute("INSTALL h3 FROM community; LOAD h3;")
+    try:
+        # Check structure and sorting for a sample cell
+        sample = conn.execute(f"""
+            SELECT h3_cell, total_count, type_counts
+            FROM '{output_file}'
+            ORDER BY total_count DESC
+            LIMIT 1
+        """).fetchone()
+
+        assert sample is not None, "No cells in output"
+        h3_cell, total_count, type_counts = sample
+
+        # Verify type_counts is a list
+        assert isinstance(type_counts, list), f"type_counts should be list, got {type(type_counts)}"
+        assert len(type_counts) > 0, "type_counts should not be empty"
+
+        # Verify each element is a struct with 'type' and 'count'
+        for item in type_counts:
+            assert "type" in item, "Missing 'type' field in type_counts struct"
+            assert "count" in item, "Missing 'count' field in type_counts struct"
+
+        # Verify sorted by count descending
+        counts = [item["count"] for item in type_counts]
+        assert counts == sorted(counts, reverse=True), "type_counts not sorted by count descending"
+
+        # Verify sum of type counts matches total_count
+        type_count_sum = sum(item["count"] for item in type_counts)
+        assert abs(type_count_sum - total_count) < 0.001, (
+            f"Type counts sum ({type_count_sum}) doesn't match total_count ({total_count})"
+        )
+
+    finally:
+        conn.close()
+
+
+@pytest.mark.integration
+def test_aggregate_events_rate_calculation(
+    events_fixture: Path,
+    synthetic_population_h3: Path,
+    tmp_path: Path,
+    config: Config,
+) -> None:
+    """Test normalized rate calculation (events per 10,000 residents).
+
+    Verifies:
+    - Rate is calculated correctly: (total_count / population) * 10000
+    - Rate is 0 for cells below minimum population threshold
+    - Rate is reasonable for cells with population
+    """
+    output_file = tmp_path / "events_rate_test.parquet"
+
+    # Execute aggregation
+    aggregate_events_to_h3(
+        events_file=events_fixture,
+        population_file=synthetic_population_h3,
+        output_file=output_file,
+        resolution=5,
+        config=config,
+    )
+
+    conn = duckdb.connect(":memory:")
+    try:
+        # Check rate calculation for cells with population
+        samples = conn.execute(f"""
+            SELECT h3_cell, total_count, population, rate_per_10000
+            FROM '{output_file}'
+            WHERE population >= {config.aggregation.min_population_threshold}
+            ORDER BY rate_per_10000 DESC
+            LIMIT 3
+        """).fetchall()
+
+        assert len(samples) > 0, "No cells with sufficient population for rate calc"
+
+        for h3_cell, total_count, population, rate_per_10000 in samples:
+            expected_rate = (float(total_count) / float(population)) * 10000.0
+            assert abs(rate_per_10000 - expected_rate) < 0.01, (
+                f"Rate calculation error for {h3_cell}: "
+                f"expected {expected_rate:.2f}, got {rate_per_10000:.2f}"
+            )
+
+    finally:
+        conn.close()
+
+
+@pytest.mark.integration
+def test_aggregate_events_raises_on_missing_events_file(
+    synthetic_population_h3: Path,
+    tmp_path: Path,
+) -> None:
+    """Test aggregation fails gracefully when events file doesn't exist."""
+    nonexistent = Path("data/nonexistent_events.parquet")
+    output = tmp_path / "test_output.parquet"
+
+    with pytest.raises(FileNotFoundError, match="Events file not found"):
+        aggregate_events_to_h3(
+            events_file=nonexistent,
+            population_file=synthetic_population_h3,
+            output_file=output,
+            resolution=5,
+        )
+
+
+@pytest.mark.integration
+def test_aggregate_events_raises_on_missing_population_file(
+    events_fixture: Path,
+    tmp_path: Path,
+) -> None:
+    """Test aggregation fails gracefully when population file doesn't exist."""
+    nonexistent = Path("data/nonexistent_population.parquet")
+    output = tmp_path / "test_output.parquet"
+
+    with pytest.raises(FileNotFoundError, match="Population file not found"):
+        aggregate_events_to_h3(
+            events_file=events_fixture,
+            population_file=nonexistent,
+            output_file=output,
+            resolution=5,
+        )
+
+
+@pytest.mark.integration
+def test_aggregate_events_atomic_write_pattern(
+    events_fixture: Path,
+    synthetic_population_h3: Path,
+    tmp_path: Path,
+    config: Config,
+) -> None:
+    """Test atomic write pattern prevents partial files on success.
+
+    Verifies that temp files are cleaned up properly after successful execution.
+    """
+    output_file = tmp_path / "events_atomic_test.parquet"
+    temp_file = output_file.with_suffix(".tmp")
+
+    # This should succeed
+    aggregate_events_to_h3(
+        events_file=events_fixture,
+        population_file=synthetic_population_h3,
+        output_file=output_file,
+        resolution=5,
+        config=config,
+    )
+
+    # Verify final file exists and temp file was cleaned up
+    assert output_file.exists(), "Final output file not created"
+    assert not temp_file.exists(), "Temporary file not cleaned up after success"

@@ -1,5 +1,11 @@
 """Shared pytest fixtures for CrimeCity3K tests."""
 
+import http.server
+import os
+import socket
+import socketserver
+import threading
+import time
 from collections.abc import Generator
 from pathlib import Path
 
@@ -7,6 +13,66 @@ import duckdb
 import pytest
 
 from crimecity3k.config import Config
+
+
+def _find_free_port() -> int:
+    """Find an available port for the test server."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("", 0))
+        s.listen(1)
+        port: int = s.getsockname()[1]
+        return port
+
+
+class _QuietHTTPHandler(http.server.SimpleHTTPRequestHandler):
+    """HTTP handler that suppresses log output."""
+
+    def log_message(self, format: str, *args: object) -> None:  # noqa: A002
+        """Suppress all log output."""
+        pass
+
+
+@pytest.fixture(scope="module")
+def live_server() -> Generator[str]:
+    """Start a static file server for E2E tests.
+
+    Serves the project root directory on a random available port.
+    The server runs in a background thread during the test module.
+
+    Yields:
+        Server URL (e.g., "http://localhost:8080")
+    """
+    port = _find_free_port()
+    server_url = f"http://localhost:{port}"
+    project_root = Path(__file__).parent.parent
+
+    # Change to project root to serve files
+    original_cwd = os.getcwd()
+    os.chdir(project_root)
+
+    httpd = socketserver.TCPServer(("", port), _QuietHTTPHandler)
+
+    # Run server in background thread
+    server_thread = threading.Thread(target=httpd.serve_forever)
+    server_thread.daemon = True
+    server_thread.start()
+
+    # Wait for server to be ready
+    import requests  # type: ignore[import-untyped]
+
+    for _ in range(20):
+        try:
+            response = requests.get(f"{server_url}/static/index.html", timeout=1)
+            if response.status_code == 200:
+                break
+        except (requests.ConnectionError, requests.Timeout):
+            time.sleep(0.1)
+
+    yield server_url
+
+    # Cleanup
+    httpd.shutdown()
+    os.chdir(original_cwd)
 
 
 @pytest.fixture

@@ -34,7 +34,7 @@ testpaths = ["tests"]
 python_files = "test_*.py"
 python_classes = "Test*"
 python_functions = "test_*"
-addopts = "-v --tb=short"
+addopts = "-v --tb=short --dist loadscope"
 markers = [
     "integration: marks tests as integration tests (may be slow)",
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",

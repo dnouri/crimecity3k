@@ -63,12 +63,24 @@ def live_server() -> Generator[str]:
     import requests  # type: ignore[import-untyped]
 
     for _ in range(60):  # Up to 6 seconds for DB init
+        # Check if server process crashed during startup
+        if not server_process.is_alive():
+            server_process.join(timeout=1)
+            pytest.fail(
+                f"Test server crashed during startup (exit code: {server_process.exitcode})"
+            )
         try:
             response = requests.get(f"{server_url}/health", timeout=1)
             if response.status_code == 200:
                 break
         except (requests.ConnectionError, requests.Timeout):
             time.sleep(0.1)
+    else:
+        # Loop completed without successful health check
+        if server_process.is_alive():
+            server_process.terminate()
+        server_process.join(timeout=5)
+        pytest.fail(f"Test server failed to respond within timeout on {server_url}")
 
     yield server_url
 

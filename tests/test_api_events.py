@@ -3,7 +3,7 @@
 These tests verify the API behavior for querying events by H3 cell
 with filtering, pagination, and full-text search.
 
-Uses the test fixture events_2024_01_15-22.parquet (476 events from one week).
+Uses the test fixture events.parquet (476 events from one week).
 """
 
 from collections.abc import Generator
@@ -24,7 +24,7 @@ def events_db() -> Generator[duckdb.DuckDBPyConnection]:
 
     Module-scoped to avoid recreating FTS index for each test.
     """
-    fixture_path = Path(__file__).parent / "fixtures" / "events_2024_01_15-22.parquet"
+    fixture_path = Path(__file__).parent / "fixtures" / "data" / "events.parquet"
 
     conn = duckdb.connect(":memory:")
 

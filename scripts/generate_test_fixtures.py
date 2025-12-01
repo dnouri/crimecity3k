@@ -30,8 +30,8 @@ logger = logging.getLogger(__name__)
 # Paths
 PROJECT_ROOT = Path(__file__).parent.parent
 FIXTURES_DIR = PROJECT_ROOT / "tests" / "fixtures"
-EVENTS_FIXTURE = FIXTURES_DIR / "events_2024_01_15-22.parquet"
-OUTPUT_DIR = FIXTURES_DIR / "pmtiles"
+EVENTS_FIXTURE = FIXTURES_DIR / "data" / "events.parquet"
+OUTPUT_DIR = FIXTURES_DIR / "data" / "tiles" / "pmtiles"
 
 # Resolutions to generate (matches backend pipeline output)
 RESOLUTIONS = [4, 5, 6]
@@ -123,14 +123,31 @@ def generate_fixtures_for_resolution(
         return pmtiles_file
 
 
+def copy_static_files() -> None:
+    """Copy static files to test fixtures directory."""
+    import shutil
+
+    src_dir = PROJECT_ROOT / "static"
+    dst_dir = FIXTURES_DIR / "static"
+
+    if dst_dir.exists():
+        shutil.rmtree(dst_dir)
+
+    shutil.copytree(src_dir, dst_dir)
+    logger.info(f"Copied static files to {dst_dir}")
+
+
 def main() -> None:
-    """Generate all test fixture PMTiles."""
+    """Generate all test fixture PMTiles and copy static files."""
     logger.info("=" * 60)
-    logger.info("Generating test fixture PMTiles")
+    logger.info("Generating test fixtures")
     logger.info("=" * 60)
 
     if not EVENTS_FIXTURE.exists():
         raise FileNotFoundError(f"Events fixture not found: {EVENTS_FIXTURE}")
+
+    # Copy static files for test server
+    copy_static_files()
 
     # Use default config with relaxed thresholds for test data
     config = Config()

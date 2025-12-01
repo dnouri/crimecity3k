@@ -23,7 +23,7 @@ def config() -> Config:
 @pytest.fixture
 def events_fixture() -> Path:
     """Path to test events fixture."""
-    return Path("tests/fixtures/events_2024_01_15-22.parquet")
+    return Path("tests/fixtures/data/events.parquet")
 
 
 def test_export_h3_to_geojson_single_cell(tmp_path: Path) -> None:

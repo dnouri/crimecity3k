@@ -50,8 +50,9 @@ def live_server() -> Generator[str]:
     """
     port = _find_free_port()
     server_url = f"http://127.0.0.1:{port}"
-    project_root = Path(__file__).parent.parent
-    tiles_dir = Path(__file__).parent / "fixtures" / "pmtiles"
+    # Use tests/fixtures/ as server root (contains static/, data/events.parquet, etc.)
+    project_root = Path(__file__).parent / "fixtures"
+    tiles_dir = project_root / "data" / "tiles" / "pmtiles"
 
     # Start server in subprocess (uvicorn needs its own process)
     server_process = multiprocessing.Process(
@@ -156,7 +157,7 @@ def sample_events(duckdb_conn: duckdb.DuckDBPyConnection) -> duckdb.DuckDBPyConn
     Returns:
         DuckDB connection with 'events' table loaded
     """
-    fixture_path = Path(__file__).parent / "fixtures" / "events_2024_01_15-22.parquet"
+    fixture_path = Path(__file__).parent / "fixtures" / "data" / "events.parquet"
     duckdb_conn.execute(f"""
         CREATE TABLE events AS
         SELECT * FROM '{fixture_path}'
@@ -178,7 +179,7 @@ def synthetic_population_h3(tmp_path: Path, duckdb_conn: duckdb.DuckDBPyConnecti
     Returns:
         Path to synthetic population Parquet file
     """
-    fixture_path = Path(__file__).parent / "fixtures" / "events_2024_01_15-22.parquet"
+    fixture_path = Path(__file__).parent / "fixtures" / "data" / "events.parquet"
     population_path = tmp_path / "synthetic_population_r5.parquet"
 
     duckdb_conn.execute(f"""

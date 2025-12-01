@@ -244,7 +244,7 @@ def test_geographic_coverage_sweden(
 @pytest.fixture
 def events_fixture() -> Path:
     """Path to test events fixture."""
-    return Path("tests/fixtures/events_2024_01_15-22.parquet")
+    return Path("tests/fixtures/data/events.parquet")
 
 
 @pytest.mark.integration

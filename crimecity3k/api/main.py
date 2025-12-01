@@ -7,14 +7,21 @@ Provides:
 - Static file serving for frontend and PMTiles
 """
 
-from datetime import date, datetime
+from datetime import date
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import FastAPI, Query
+import duckdb
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.staticfiles import StaticFiles
 
 from crimecity3k.api.categories import CATEGORY_TYPES
+from crimecity3k.api.queries import (
+    get_event_count,
+    get_type_hierarchy,
+    is_valid_h3_cell,
+    query_events,
+)
 from crimecity3k.api.schemas import (
     EventResponse,
     EventsListResponse,
@@ -32,27 +39,56 @@ app = FastAPI(
 )
 
 
+def get_db(request: Request) -> duckdb.DuckDBPyConnection:
+    """Get database connection from app state.
+
+    Args:
+        request: FastAPI request object
+
+    Returns:
+        DuckDB connection
+
+    Raises:
+        HTTPException: If database not initialized
+    """
+    db: duckdb.DuckDBPyConnection | None = getattr(request.app.state, "db", None)
+    if db is None:
+        raise HTTPException(status_code=503, detail="Database not initialized")
+    return db
+
+
 @app.get("/health", response_model=HealthResponse, tags=["System"])
-async def health_check() -> HealthResponse:
+async def health_check(request: Request) -> HealthResponse:
     """Check API health and return basic stats."""
-    # TODO: Implement actual database connection and event count
-    return HealthResponse(status="healthy", events_count=0)
+    try:
+        db = get_db(request)
+        count = get_event_count(db)
+        return HealthResponse(status="healthy", events_count=count)
+    except HTTPException:
+        # Database not initialized - still healthy but no events
+        return HealthResponse(status="healthy", events_count=0)
 
 
 @app.get("/api/types", response_model=TypeHierarchy, tags=["Events"])
-async def get_types() -> TypeHierarchy:
+async def get_types(request: Request) -> TypeHierarchy:
     """Get category→types hierarchy for filter UI.
 
     Returns all 8 categories with their associated event types.
     The 'other' category is populated dynamically from database.
     """
-    # Include 'other' with empty list - will be populated by queries module
-    categories = {**CATEGORY_TYPES, "other": []}
-    return TypeHierarchy(categories=categories)
+    try:
+        db = get_db(request)
+        hierarchy = get_type_hierarchy(db)
+        return TypeHierarchy(categories=hierarchy)
+    except HTTPException:
+        # Database not initialized - return static categories
+        categories = {**CATEGORY_TYPES, "other": []}
+        return TypeHierarchy(categories=categories)
 
 
 @app.get("/api/events", response_model=EventsListResponse, tags=["Events"])
 async def get_events(
+    request: Request,
     h3_cell: Annotated[str, Query(description="H3 cell ID to query events for")],
     start_date: Annotated[date | None, Query(description="Filter start date")] = None,
     end_date: Annotated[date | None, Query(description="Filter end date")] = None,
@@ -74,25 +110,49 @@ async def get_events(
 
     Search uses Swedish stemming so "stöld" matches "stölder" etc.
     """
-    # TODO: Implement actual database query in Task 5.4
-    # This stub returns mock data for frontend development
-    mock_event = EventResponse(
-        event_id="stub-1",
-        event_datetime=datetime.now(),
-        type="Stöld",
-        category="property",
-        location_name="Stockholm",
-        summary="Stub event for frontend development",
-        html_body="Detailed description would go here.",
-        police_url="https://polisen.se/aktuellt/handelser/stub/",
-        latitude=59.329,
-        longitude=18.068,
-    )
+    # Validate H3 cell
+    if not is_valid_h3_cell(h3_cell):
+        raise HTTPException(status_code=400, detail=f"Invalid H3 cell ID: {h3_cell}")
+
+    db = get_db(request)
+
+    try:
+        result = query_events(
+            conn=db,
+            h3_cell=h3_cell,
+            start_date=start_date,
+            end_date=end_date,
+            categories=categories,
+            types=types,
+            search=search,
+            page=page,
+            per_page=per_page,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+    # Convert to response model
+    events = [
+        EventResponse(
+            event_id=e["event_id"],
+            event_datetime=e["event_datetime"],
+            type=e["type"],
+            category=e["category"],
+            location_name=e["location_name"],
+            summary=e["summary"],
+            html_body=e["html_body"],
+            police_url=e["police_url"],
+            latitude=e["latitude"],
+            longitude=e["longitude"],
+        )
+        for e in result["events"]
+    ]
+
     return EventsListResponse(
-        total=1,
-        page=page,
-        per_page=per_page,
-        events=[mock_event],
+        total=result["total"],
+        page=result["page"],
+        per_page=result["per_page"],
+        events=events,
     )
 
 

@@ -252,8 +252,9 @@ class TestQueryEventsSearch:
         """Search should match terms in type field."""
         response = client.get(f"/api/events?h3_cell={sample_h3_cell}&search=stöld")
         data = response.json()
-        # If we have theft events, they should be found
-        if data["total"] > 0:
+        # If we have events returned (above privacy threshold), check types
+        # Note: may return total > 0 but events = [] if below threshold
+        if data["events"]:
             # At least some should have Stöld in type
             types_found = [e["type"] for e in data["events"]]
             assert any("töld" in t.lower() for t in types_found)

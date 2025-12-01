@@ -11,49 +11,78 @@ TILES_DIR := $(DATA_DIR)/tiles
 # Code dependencies (SQL files trigger rebuilds)
 SQL_DIR := crimecity3k/sql
 
-# Phony targets
-.PHONY: install check test clean help
-
 # Default target
-help:
-	@echo "CrimeCity3K - Available targets:"
-	@echo "  install      - Install dependencies with uv"
-	@echo "  check        - Run linting and type checking"
-	@echo "  test         - Run test suite with coverage"
-	@echo "  clean        - Remove generated files and caches"
-	@echo ""
-	@echo "Data download:"
-	@echo "  data/population_1km_2024.gpkg  - Download SCB population grid"
-	@echo ""
-	@echo "Population pipeline:"
-	@echo "  pipeline-population            - Build all H3 resolutions (r4, r5, r6)"
-	@echo "  data/h3/population_r4.parquet  - Convert to H3 resolution 4 (~25km)"
-	@echo "  data/h3/population_r5.parquet  - Convert to H3 resolution 5 (~8km)"
-	@echo "  data/h3/population_r6.parquet  - Convert to H3 resolution 6 (~3km)"
-	@echo ""
-	@echo "Event aggregation pipeline:"
-	@echo "  pipeline-h3                    - Aggregate events for all H3 resolutions"
-	@echo "  data/h3/events_r4.parquet      - Aggregate to H3 resolution 4 (~25km)"
-	@echo "  data/h3/events_r5.parquet      - Aggregate to H3 resolution 5 (~8km)"
-	@echo "  data/h3/events_r6.parquet      - Aggregate to H3 resolution 6 (~3km)"
-	@echo ""
-	@echo "Tile generation pipeline:"
-	@echo "  pipeline-geojson               - Export all resolutions to GeoJSONL"
-	@echo "  pipeline-pmtiles               - Generate all PMTiles (requires Tippecanoe)"
-	@echo "  pipeline-all                   - Build complete pipeline (population + events + tiles)"
+.DEFAULT_GOAL := help
 
-install:
+# Phony targets
+.PHONY: help install check format test test-unit test-e2e serve clean \
+        test-fixtures \
+        pipeline-population pipeline-h3 pipeline-geojson pipeline-pmtiles pipeline-all
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# DEVELOPMENT TARGETS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+help: ## Show this help message
+	@echo "CrimeCity3K - Swedish Police Events Map"
+	@echo ""
+	@echo "Development:"
+	@grep -E '^[a-zA-Z0-9_-]+:.*## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "}; {printf "  %-18s %s\n", $$1, $$2}'
+	@echo ""
+	@echo "Data Pipeline:"
+	@echo "  pipeline-all       Build complete pipeline (population + events + tiles)"
+	@echo "  pipeline-population  Build H3 population data (r4, r5, r6)"
+	@echo "  pipeline-h3        Aggregate events to H3 cells"
+	@echo "  pipeline-geojson   Export to GeoJSONL format"
+	@echo "  pipeline-pmtiles   Generate PMTiles (requires Tippecanoe)"
+	@echo ""
+	@echo "Examples:"
+	@echo "  make install       # Install all dependencies"
+	@echo "  make test          # Run all tests"
+	@echo "  make serve         # Start local server at http://localhost:8080"
+	@echo "  make pipeline-all  # Build complete data pipeline"
+
+install: ## Install project dependencies with uv
+	@echo "Installing dependencies..."
 	uv sync --all-extras
+	@echo "Installing pre-commit hooks..."
+	uv run pre-commit install
+	@echo "Installing Playwright browsers..."
+	uv run playwright install chromium
+	@echo "✓ Installation complete"
 
-check:
+check: ## Run linting and type checking
 	uv run ruff check crimecity3k tests
 	uv run ruff format --check crimecity3k tests
 	uv run mypy crimecity3k tests
 
-test:
+format: ## Auto-format code with ruff
+	@echo "Formatting code..."
+	uv run ruff format crimecity3k tests
+	@echo "Fixing lint issues..."
+	uv run ruff check --fix crimecity3k tests
+	@echo "✓ Code formatted"
+
+test: ## Run all tests with coverage
 	uv run pytest tests/ -v -n auto --cov=crimecity3k --cov-report=html --cov-report=term
 
-clean:
+test-unit: ## Run unit tests only (fast, no browser)
+	uv run pytest tests/ -v -n auto -m "not e2e" --cov=crimecity3k --cov-report=term
+
+test-e2e: test-fixtures ## Run E2E browser tests with Playwright
+	uv run pytest tests/test_frontend_e2e.py -v -m e2e
+
+test-fixtures: ## Generate PMTiles fixtures for E2E tests (requires tippecanoe)
+	@if ! command -v tippecanoe >/dev/null 2>&1; then \
+		echo "Error: tippecanoe not found. Install with: sudo apt install tippecanoe"; \
+		exit 1; \
+	fi
+	uv run python scripts/generate_test_fixtures.py
+
+serve: ## Start local development server at http://localhost:8080
+	uv run python -m crimecity3k.dev_server --port 8080
+
+clean: ## Remove generated files and caches
 	rm -rf $(H3_DIR) $(TILES_DIR)
 	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
 	find . -type d -name .pytest_cache -exec rm -rf {} + 2>/dev/null || true

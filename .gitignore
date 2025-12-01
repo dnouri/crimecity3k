@@ -5,6 +5,9 @@ data/*.gpkg
 data/h3/
 data/tiles/
 
+# Generated test fixtures (created by make test-fixtures)
+tests/fixtures/pmtiles/
+
 # Python
 .venv/
 __pycache__/
@@ -30,6 +33,7 @@ dmypy.json
 *.swp
 *.swo
 *~
+tmp/
 
 # IDE
 .vscode/

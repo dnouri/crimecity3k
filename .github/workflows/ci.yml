@@ -26,11 +26,17 @@ jobs:
         with:
           python-version: "3.13"
 
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y tippecanoe
+
       - name: Install dependencies
         run: make install
 
       - name: Run linting and type checks
         run: make check
+
+      - name: Generate test fixtures
+        run: make test-fixtures
 
       - name: Run tests with coverage
         run: make test

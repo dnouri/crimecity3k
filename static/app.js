@@ -527,6 +527,7 @@ const DrillDown = {
         types: []
     },
     debounceTimer: null,
+    abortController: null,
 
     // DOM Elements (cached on init)
     elements: {},
@@ -626,6 +627,11 @@ const DrillDown = {
 
         // Hide old cell-details panel
         document.getElementById('cell-details').classList.remove('visible');
+
+        // Focus management - focus search input after drawer opens
+        setTimeout(() => {
+            this.elements.searchInput.focus();
+        }, 100);
 
         this.fetchEvents();
     },
@@ -824,6 +830,12 @@ const DrillDown = {
     async fetchEvents() {
         if (!this.currentH3Cell) return;
 
+        // Cancel any in-flight request
+        if (this.abortController) {
+            this.abortController.abort();
+        }
+        this.abortController = new AbortController();
+
         this.showState('loading');
 
         try {
@@ -849,7 +861,9 @@ const DrillDown = {
                 params.append('types', type);
             });
 
-            const response = await fetch(`/api/events?${params}`);
+            const response = await fetch(`/api/events?${params}`, {
+                signal: this.abortController.signal
+            });
 
             if (!response.ok) {
                 throw new Error(`HTTP ${response.status}`);
@@ -861,6 +875,10 @@ const DrillDown = {
             this.updateEventCount(data.total);
             this.renderEvents(data);
         } catch (error) {
+            // Ignore abort errors
+            if (error.name === 'AbortError') {
+                return;
+            }
             console.error('Failed to fetch events:', error);
             this.showState('error');
         }

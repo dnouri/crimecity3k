@@ -59,20 +59,23 @@
     </div>
 
     <!-- Drill-down drawer for event list -->
-    <div id="drill-down-drawer" class="drill-down-drawer" data-testid="drill-down-drawer">
+    <div id="drill-down-drawer" class="drill-down-drawer" data-testid="drill-down-drawer"
+         role="dialog" aria-modal="true" aria-labelledby="drawer-location">
         <div class="drawer-header">
             <div class="drawer-title">
                 <h2 id="drawer-location">Events</h2>
-                <span id="drawer-event-count" data-testid="event-count">0 events</span>
+                <span id="drawer-event-count" data-testid="event-count" aria-live="polite">0 events</span>
             </div>
-            <button id="drawer-close" class="drawer-close" data-testid="drawer-close" aria-label="Close">&times;</button>
+            <button id="drawer-close" class="drawer-close" data-testid="drawer-close"
+                    aria-label="Close event drawer">&times;</button>
         </div>
 
         <div class="drawer-filters" data-testid="filter-bar">
             <!-- Search -->
             <div class="search-container">
-                <span class="search-icon">🔍</span>
-                <input type="text" id="filter-search" class="search-input" data-testid="search-input" placeholder="Search events...">
+                <span class="search-icon" aria-hidden="true">🔍</span>
+                <input type="search" id="filter-search" class="search-input" data-testid="search-input"
+                       placeholder="Search events..." aria-label="Search events by keyword">
             </div>
 
             <!-- Date presets -->
@@ -113,9 +116,12 @@
             </div>
 
             <!-- Threshold message -->
-            <div id="threshold-message" class="threshold-message" data-testid="threshold-message">
+            <div id="threshold-message" class="threshold-message" data-testid="threshold-message" role="status">
+                <div class="threshold-icon">🔒</div>
+                <h3>Privacy Protected</h3>
                 <p>This area has fewer than 3 events.</p>
-                <p>Individual events are not shown to protect privacy.</p>
+                <p>Individual event details are hidden to protect privacy when there are too few incidents to provide anonymity.</p>
+                <p class="threshold-note">The aggregate count is still shown in the map cell.</p>
             </div>
 
             <!-- Event list -->

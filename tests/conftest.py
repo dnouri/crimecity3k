@@ -59,12 +59,12 @@ def live_server() -> Generator[str]:
     )
     server_process.start()
 
-    # Wait for server to be ready
+    # Wait for server to be ready (including database initialization)
     import requests  # type: ignore[import-untyped]
 
-    for _ in range(30):
+    for _ in range(60):  # Up to 6 seconds for DB init
         try:
-            response = requests.get(f"{server_url}/static/index.html", timeout=1)
+            response = requests.get(f"{server_url}/health", timeout=1)
             if response.status_code == 200:
                 break
         except (requests.ConnectionError, requests.Timeout):

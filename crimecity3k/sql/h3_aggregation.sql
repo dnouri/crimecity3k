@@ -52,6 +52,8 @@ COPY (
     WITH events_h3 AS (
         -- Map events to H3 cells and assign semantic categories
         -- Category mapping based on category_mapping.toml
+        -- Excludes editorial "Sammanfattning" (summary) reports which are
+        -- meta-content, not actual crime events
         SELECT
             h3_latlng_to_cell_string(latitude, longitude, {{ resolution }}) AS h3_cell,
             type,
@@ -116,6 +118,7 @@ COPY (
                 ELSE 'other'
             END AS category
         FROM '{{ events_file }}'
+        WHERE type NOT LIKE 'Sammanfattning%'
     ),
 
     type_counts AS (

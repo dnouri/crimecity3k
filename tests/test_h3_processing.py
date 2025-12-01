@@ -387,14 +387,74 @@ def test_aggregate_events_category_counts_sum_to_total(
             )
         )
 
-        # Also verify total events match input
-        total_events = conn.execute(f"SELECT SUM(total_count) FROM '{output_file}'").fetchone()
-        assert total_events is not None
-        input_events = conn.execute(f"SELECT COUNT(*) FROM '{events_fixture}'").fetchone()
-        assert input_events is not None
+    finally:
+        conn.close()
 
-        assert total_events[0] == input_events[0], (
-            f"Total events mismatch: input={input_events[0]}, output={total_events[0]}"
+
+@pytest.mark.integration
+def test_aggregate_events_excludes_summary_reports(
+    events_fixture: Path,
+    synthetic_population_h3: Path,
+    tmp_path: Path,
+    config: Config,
+) -> None:
+    """Test that editorial summary reports are excluded from aggregation.
+
+    Swedish police publish "Sammanfattning" (summary) reports that are
+    editorial meta-content, not actual crime events. These must be excluded:
+    - Sammanfattning natt (Night summary)
+    - Sammanfattning kväll och natt (Evening and night summary)
+    - Sammanfattning dag (Day summary)
+
+    Verifies:
+    - No Sammanfattning types appear in type_counts
+    - Total count is reduced by the number of excluded events
+    """
+    output_file = tmp_path / "events_exclusion_test.parquet"
+
+    # Execute aggregation
+    aggregate_events_to_h3(
+        events_file=events_fixture,
+        population_file=synthetic_population_h3,
+        output_file=output_file,
+        resolution=5,
+        config=config,
+    )
+
+    conn = duckdb.connect(":memory:")
+    try:
+        # Count Sammanfattning events in source data
+        excluded_count = conn.execute(f"""
+            SELECT COUNT(*) FROM '{events_fixture}'
+            WHERE type LIKE 'Sammanfattning%'
+        """).fetchone()
+        assert excluded_count is not None
+        num_excluded = excluded_count[0]
+        assert num_excluded > 0, "Test fixture should contain Sammanfattning events"
+
+        # Verify no Sammanfattning types in output type_counts
+        # Unnest the type_counts array and check for excluded types
+        sammanfattning_in_output = conn.execute(f"""
+            SELECT COUNT(*) FROM (
+                SELECT UNNEST(type_counts) as tc FROM '{output_file}'
+            )
+            WHERE tc.type LIKE 'Sammanfattning%'
+        """).fetchone()
+        assert sammanfattning_in_output is not None
+        assert sammanfattning_in_output[0] == 0, (
+            f"Found {sammanfattning_in_output[0]} Sammanfattning events in output - "
+            "these should be excluded"
+        )
+
+        # Verify total count is reduced appropriately
+        input_total = conn.execute(f"SELECT COUNT(*) FROM '{events_fixture}'").fetchone()
+        output_total = conn.execute(f"SELECT SUM(total_count) FROM '{output_file}'").fetchone()
+        assert input_total is not None and output_total is not None
+
+        expected_total = input_total[0] - num_excluded
+        assert output_total[0] == expected_total, (
+            f"Total count mismatch: expected {expected_total} "
+            f"(input {input_total[0]} - excluded {num_excluded}), got {output_total[0]}"
         )
 
     finally:
@@ -643,8 +703,12 @@ def test_aggregate_events_handles_partial_population(
         assert cells_without_pop > 0, "Should have cells without population (LEFT JOIN)"
         assert total_cells == cells_with_pop + cells_without_pop, "Cell counts should sum"
 
-        # Verify all events preserved (none dropped)
-        input_events = conn.execute(f"SELECT COUNT(*) FROM '{events_fixture}'").fetchone()
+        # Verify all non-excluded events preserved (none dropped due to population)
+        # Note: Sammanfattning (summary) events are excluded by design
+        input_events = conn.execute(f"""
+            SELECT COUNT(*) FROM '{events_fixture}'
+            WHERE type NOT LIKE 'Sammanfattning%'
+        """).fetchone()
         assert input_events is not None
         assert total_events == input_events[0], (
             f"Events should be preserved: input={input_events[0]}, output={total_events}"

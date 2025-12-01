@@ -58,6 +58,89 @@
         <div id="details-content"></div>
     </div>
 
+    <!-- Drill-down drawer for event list -->
+    <div id="drill-down-drawer" class="drill-down-drawer" data-testid="drill-down-drawer">
+        <div class="drawer-header">
+            <div class="drawer-title">
+                <h2 id="drawer-location">Events</h2>
+                <span id="drawer-event-count" data-testid="event-count">0 events</span>
+            </div>
+            <button id="drawer-close" class="drawer-close" data-testid="drawer-close" aria-label="Close">&times;</button>
+        </div>
+
+        <div class="drawer-filters" data-testid="filter-bar">
+            <!-- Search -->
+            <div class="search-container">
+                <span class="search-icon">🔍</span>
+                <input type="text" id="filter-search" class="search-input" data-testid="search-input" placeholder="Search events...">
+            </div>
+
+            <!-- Date presets -->
+            <div class="filter-section">
+                <div class="date-chips">
+                    <button class="filter-chip" data-testid="date-chip-7d" data-days="7">7d</button>
+                    <button class="filter-chip" data-testid="date-chip-30d" data-days="30">30d</button>
+                    <button class="filter-chip" data-testid="date-chip-90d" data-days="90">90d</button>
+                    <button class="filter-chip active" data-testid="date-chip-all" data-days="">All</button>
+                    <button class="filter-chip" data-testid="date-chip-custom">Custom</button>
+                </div>
+                <div id="custom-date-range" class="custom-date-range">
+                    <input type="date" id="date-start" data-testid="date-start">
+                    <span>to</span>
+                    <input type="date" id="date-end" data-testid="date-end">
+                </div>
+            </div>
+
+            <!-- Category chips -->
+            <div class="filter-section">
+                <div class="category-chips" id="category-chips">
+                    <button class="filter-chip category-chip active" data-testid="category-all" data-category="all">All</button>
+                    <button class="filter-chip category-chip" data-testid="category-property" data-category="property">Property</button>
+                    <button class="filter-chip category-chip" data-testid="category-traffic" data-category="traffic">Traffic</button>
+                    <button class="filter-chip category-chip" data-testid="category-violence" data-category="violence">Violence</button>
+                    <button class="filter-chip category-chip" data-testid="category-narcotics" data-category="narcotics">Narcotics</button>
+                    <button class="filter-chip category-chip" data-testid="category-other" data-category="other">Other</button>
+                </div>
+                <div id="type-expansion" class="type-expansion" data-testid="type-expansion"></div>
+            </div>
+        </div>
+
+        <div class="drawer-content">
+            <!-- Loading state -->
+            <div id="loading-spinner" class="loading-spinner" data-testid="loading-spinner">
+                <div class="spinner"></div>
+                <span>Loading events...</span>
+            </div>
+
+            <!-- Threshold message -->
+            <div id="threshold-message" class="threshold-message" data-testid="threshold-message">
+                <p>This area has fewer than 3 events.</p>
+                <p>Individual events are not shown to protect privacy.</p>
+            </div>
+
+            <!-- Event list -->
+            <div id="event-list" class="event-list" data-testid="event-list"></div>
+
+            <!-- Empty state -->
+            <div id="empty-state" class="empty-state">
+                <p>No events match your filters.</p>
+            </div>
+
+            <!-- Error state -->
+            <div id="error-state" class="error-state">
+                <p>Failed to load events.</p>
+                <button id="retry-button">Try Again</button>
+            </div>
+        </div>
+
+        <!-- Pagination -->
+        <div id="pagination" class="pagination" data-testid="pagination">
+            <button id="pagination-prev" data-testid="pagination-prev" disabled>&larr; Prev</button>
+            <span id="page-info" data-testid="page-info">Page 1 of 1</span>
+            <button id="pagination-next" data-testid="pagination-next">Next &rarr;</button>
+        </div>
+    </div>
+
     <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
     <script src="https://unpkg.com/pmtiles@3.2.0/dist/pmtiles.js"></script>
     <script src="app.js"></script>

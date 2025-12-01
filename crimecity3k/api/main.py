@@ -4,9 +4,17 @@ Provides:
 - /api/events: Query events by H3 cell with filtering and search
 - /api/types: Get category→types hierarchy for filter UI
 - /health: Health check endpoint
-- Static file serving for frontend and PMTiles
+- Static file serving for frontend and PMTiles (with HTTP Range support)
+
+Usage:
+    python -m crimecity3k.api.main [--port 8080]
+    # Or via make:
+    make serve
 """
 
+import argparse
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
 from datetime import date
 from pathlib import Path
 from typing import Annotated
@@ -16,6 +24,7 @@ from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.staticfiles import StaticFiles
 
 from crimecity3k.api.categories import CATEGORY_TYPES
+from crimecity3k.api.fts import create_fts_index
 from crimecity3k.api.queries import (
     get_event_count,
     get_type_hierarchy,
@@ -29,6 +38,70 @@ from crimecity3k.api.schemas import (
     TypeHierarchy,
 )
 
+# Default H3 resolution for drill-down queries
+DEFAULT_H3_RESOLUTION = 5
+
+
+def init_database(events_parquet: Path) -> duckdb.DuckDBPyConnection:
+    """Initialize DuckDB with events data, H3 cells, and FTS index.
+
+    Args:
+        events_parquet: Path to events.parquet file
+
+    Returns:
+        Configured DuckDB connection
+
+    Raises:
+        FileNotFoundError: If events parquet file doesn't exist
+    """
+    if not events_parquet.exists():
+        raise FileNotFoundError(f"Events file not found: {events_parquet}")
+
+    conn = duckdb.connect()
+
+    # Install and load required extensions
+    conn.execute("INSTALL h3 FROM community; LOAD h3")
+    conn.execute("INSTALL fts; LOAD fts")
+
+    # Load events with computed H3 cell (hex string format)
+    conn.execute(f"""
+        CREATE TABLE events AS
+        SELECT
+            *,
+            h3_latlng_to_cell_string(latitude, longitude, {DEFAULT_H3_RESOLUTION}) AS h3_cell
+        FROM '{events_parquet}'
+        WHERE latitude IS NOT NULL AND longitude IS NOT NULL
+    """)
+
+    # Create FTS index for search
+    create_fts_index(conn)
+
+    return conn
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
+    """Manage application lifespan - initialize and cleanup database."""
+    root_dir: Path = getattr(app.state, "root_dir", Path(__file__).parent.parent.parent)
+    events_path = root_dir / "data" / "events.parquet"
+
+    try:
+        print(f"Initializing database from {events_path}...")
+        app.state.db = init_database(events_path)
+        count = get_event_count(app.state.db)
+        print(f"✓ Database ready with {count:,} events")
+    except FileNotFoundError as e:
+        print(f"⚠ Warning: {e}")
+        print("  API will run but /api/events will return 503")
+        app.state.db = None
+
+    yield
+
+    # Cleanup
+    if app.state.db:
+        app.state.db.close()
+
+
 # API metadata for OpenAPI docs
 app = FastAPI(
     title="CrimeCity3K API",
@@ -36,6 +109,7 @@ app = FastAPI(
     version="1.0.0",
     docs_url="/docs",
     redoc_url="/redoc",
+    lifespan=lifespan,
 )
 
 
@@ -162,6 +236,8 @@ def create_app(
 ) -> FastAPI:
     """Create configured FastAPI app with static file mounts.
 
+    Mounts static files with HTTP Range request support (required for PMTiles).
+
     Args:
         root_dir: Directory containing static/ folder. Defaults to project root.
         tiles_dir: Directory containing PMTiles. Defaults to root_dir/data/tiles/pmtiles.
@@ -175,12 +251,15 @@ def create_app(
     if tiles_dir is None:
         tiles_dir = root_dir / "data" / "tiles" / "pmtiles"
 
-    # Mount static files
+    # Store root_dir for lifespan to find events.parquet
+    app.state.root_dir = root_dir
+
+    # Mount static files (Starlette's StaticFiles supports HTTP Range requests)
     static_dir = root_dir / "static"
     if static_dir.exists():
         app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
-    # Mount PMTiles
+    # Mount PMTiles directory (needs Range support for efficient tile fetching)
     if tiles_dir.exists():
         app.mount(
             "/data/tiles/pmtiles",
@@ -188,12 +267,39 @@ def create_app(
             name="tiles",
         )
 
+    # Mount data directory for other data files
+    data_dir = root_dir / "data"
+    if data_dir.exists():
+        app.mount("/data", StaticFiles(directory=data_dir), name="data")
+
     return app
 
 
-# For running directly with uvicorn
-if __name__ == "__main__":
+def main() -> None:
+    """Run the development server."""
     import uvicorn
 
+    parser = argparse.ArgumentParser(description="CrimeCity3K development server")
+    parser.add_argument(
+        "--port", "-p", type=int, default=8080, help="Port to serve on (default: 8080)"
+    )
+    parser.add_argument(
+        "--host",
+        "-H",
+        type=str,
+        default="127.0.0.1",
+        help="Host to bind to (default: 127.0.0.1)",
+    )
+    args = parser.parse_args()
+
+    print("Starting CrimeCity3K server...")
+    print(f"View at: http://{args.host}:{args.port}/static/index.html")
+    print(f"API docs: http://{args.host}:{args.port}/docs")
+    print("Press Ctrl+C to stop\n")
+
     create_app()
-    uvicorn.run(app, host="127.0.0.1", port=8080, log_level="info")
+    uvicorn.run(app, host=args.host, port=args.port, log_level="info")
+
+
+if __name__ == "__main__":
+    main()

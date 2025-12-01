@@ -80,7 +80,7 @@ test-fixtures: ## Generate PMTiles fixtures for E2E tests (requires tippecanoe)
 	uv run python scripts/generate_test_fixtures.py
 
 serve: ## Start local development server at http://localhost:8080
-	uv run python -m crimecity3k.dev_server --port 8080
+	uv run python -m crimecity3k.api.main --port 8080
 
 clean: ## Remove generated files and caches
 	rm -rf $(H3_DIR) $(TILES_DIR)

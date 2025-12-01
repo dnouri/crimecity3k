@@ -22,13 +22,14 @@ def _find_free_port() -> int:
 
 
 def _run_server(port: int, root_dir: Path, tiles_dir: Path) -> None:
-    """Run Starlette server in subprocess.
+    """Run FastAPI server in subprocess.
 
-    This server supports HTTP Range requests, which PMTiles requires.
+    This server supports HTTP Range requests (via Starlette's StaticFiles),
+    which PMTiles requires.
     """
     import uvicorn
 
-    from crimecity3k.dev_server import create_app
+    from crimecity3k.api.main import create_app
 
     app = create_app(root_dir, tiles_dir=tiles_dir)
     uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")

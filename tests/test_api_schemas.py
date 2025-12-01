@@ -153,7 +153,7 @@ class TestTypeHierarchySchema:
 
 
 class TestAPIStubEndpoints:
-    """Tests for API stub endpoints."""
+    """Tests for API endpoints without database (testing graceful degradation)."""
 
     @pytest.fixture
     def client(self) -> TestClient:
@@ -176,14 +176,13 @@ class TestAPIStubEndpoints:
         assert "traffic" in data["categories"]
         assert "property" in data["categories"]
 
-    def test_events_endpoint_stub(self, client: TestClient) -> None:
-        """Events endpoint should return stub data."""
+    def test_events_endpoint_requires_database(self, client: TestClient) -> None:
+        """Events endpoint returns 503 when database is not initialized."""
         response = client.get("/api/events?h3_cell=85283473fffffff")
-        assert response.status_code == 200
+        # Without database initialization via lifespan, returns 503
+        assert response.status_code == 503
         data = response.json()
-        assert "total" in data
-        assert "events" in data
-        assert "page" in data
+        assert data["detail"] == "Database not initialized"
 
     def test_events_endpoint_requires_h3_cell(self, client: TestClient) -> None:
         """Events endpoint should require h3_cell parameter."""

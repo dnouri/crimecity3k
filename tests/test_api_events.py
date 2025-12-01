@@ -87,17 +87,20 @@ def sample_cell_event_count(events_db: duckdb.DuckDBPyConnection, sample_h3_cell
 
 
 @pytest.fixture
-def app_with_db(events_db: duckdb.DuckDBPyConnection) -> FastAPI:
-    """Create FastAPI app configured with test database.
+def app_with_db(events_db: duckdb.DuckDBPyConnection) -> Generator[FastAPI]:
+    """Configure FastAPI app with test database, cleaning up after.
 
-    This fixture creates a new FastAPI app for each test, but reuses
-    the module-scoped database to avoid FTS index recreation.
+    Reuses the module-scoped database to avoid FTS index recreation.
+    Restores original app.state.db on teardown to prevent test pollution.
     """
     from crimecity3k.api.main import app
 
-    # Store connection in app state for queries module to use
+    # Save original state and set test database
+    original_db = getattr(app.state, "db", None)
     app.state.db = events_db
-    return app
+    yield app
+    # Restore original state (prevents pollution to other test modules)
+    app.state.db = original_db
 
 
 @pytest.fixture

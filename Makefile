@@ -16,6 +16,7 @@ SQL_DIR := crimecity3k/sql
 
 # Phony targets
 .PHONY: help install check format test test-unit test-e2e serve clean \
+        test-fixtures \
         pipeline-population pipeline-h3 pipeline-geojson pipeline-pmtiles pipeline-all
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -68,8 +69,15 @@ test: ## Run all tests with coverage
 test-unit: ## Run unit tests only (fast, no browser)
 	uv run pytest tests/ -v -n auto -m "not e2e" --cov=crimecity3k --cov-report=term
 
-test-e2e: ## Run E2E browser tests with Playwright
+test-e2e: test-fixtures ## Run E2E browser tests with Playwright
 	uv run pytest tests/test_frontend_e2e.py -v -m e2e
+
+test-fixtures: ## Generate PMTiles fixtures for E2E tests (requires tippecanoe)
+	@if ! command -v tippecanoe >/dev/null 2>&1; then \
+		echo "Error: tippecanoe not found. Install with: sudo apt install tippecanoe"; \
+		exit 1; \
+	fi
+	uv run python scripts/generate_test_fixtures.py
 
 serve: ## Start local development server at http://localhost:8080
 	uv run python -m crimecity3k.dev_server --port 8080

@@ -19,11 +19,16 @@ from starlette.routing import Mount
 from starlette.staticfiles import StaticFiles
 
 
-def create_app(root_dir: Path | None = None) -> Starlette:
+def create_app(
+    root_dir: Path | None = None,
+    tiles_dir: Path | None = None,
+) -> Starlette:
     """Create Starlette app serving static files with Range support.
 
     Args:
-        root_dir: Directory to serve. Defaults to project root.
+        root_dir: Directory containing static/ folder. Defaults to project root.
+        tiles_dir: Directory containing PMTiles. Defaults to root_dir/data/tiles/pmtiles.
+                   Served at /data/tiles/pmtiles/ to match frontend expectations.
 
     Returns:
         Configured Starlette application
@@ -32,11 +37,20 @@ def create_app(root_dir: Path | None = None) -> Starlette:
         # Default to project root (parent of crimecity3k package)
         root_dir = Path(__file__).parent.parent
 
+    if tiles_dir is None:
+        tiles_dir = root_dir / "data" / "tiles" / "pmtiles"
+
     app = Starlette(
         routes=[
             # Serve static/ directory at /static/
             Mount("/static", StaticFiles(directory=root_dir / "static"), name="static"),
-            # Serve data/ directory at /data/ (for PMTiles)
+            # Serve PMTiles at expected path
+            Mount(
+                "/data/tiles/pmtiles",
+                StaticFiles(directory=tiles_dir),
+                name="tiles",
+            ),
+            # Serve rest of data/ directory (for other data files if needed)
             Mount("/data", StaticFiles(directory=root_dir / "data"), name="data"),
         ]
     )

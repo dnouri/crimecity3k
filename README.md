@@ -143,6 +143,27 @@ make clean             # Remove generated files
 - **Police Events**: [polisen.se/api/events](https://polisen.se/api/events) (2022-2025)
 - **Population Data**: [SCB Geospatial Statistics](https://geodata.scb.se) (1km² grid, 2024)
 
+## Known Limitations
+
+### City-Level Coordinates
+
+The Swedish Police API reports events at **city centroid coordinates** rather than actual incident locations. This means all events for Stockholm appear at a single point (59.33°N, 18.07°E), all Malmö events at another point, and so on.
+
+This affects H3 aggregation differently at each resolution:
+
+| City | Metro Pop | r6 Cell Pop | Coverage | Rate Inflation |
+|------|-----------|-------------|----------|----------------|
+| Stockholm | 975,000 | ~252,000 | 26% | ~3.9x |
+| Gothenburg | 608,000 | ~168,000 | 28% | ~3.6x |
+| Malmö | 352,000 | ~142,000 | 40% | ~2.5x |
+| Lund | 95,000 | ~22,000 | 23% | ~4.3x |
+
+At coarser resolutions (r4 ~1,100km², r5 ~250km²), cells are large enough to capture most of a metro area's population, so rates are reasonably accurate. At r6 (~60km²), the centroid cell contains only 23-40% of the metro population while receiving 100% of events, inflating apparent rates by 2.5-4.3x.
+
+**Current approach**: The frontend displays only r4 and r5. The backend generates r6 for potential future use if better coordinate data becomes available.
+
+**Future improvement**: Geocoding events to actual addresses would enable accurate fine-grained analysis.
+
 ## Configuration
 
 Settings are managed via `config.toml`:

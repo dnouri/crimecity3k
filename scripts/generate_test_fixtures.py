@@ -33,7 +33,7 @@ FIXTURES_DIR = PROJECT_ROOT / "tests" / "fixtures"
 EVENTS_FIXTURE = FIXTURES_DIR / "events_2024_01_15-22.parquet"
 OUTPUT_DIR = FIXTURES_DIR / "pmtiles"
 
-# Resolutions to generate (must match frontend expectations)
+# Resolutions to generate (matches backend pipeline output)
 RESOLUTIONS = [4, 5, 6]
 
 

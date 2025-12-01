@@ -16,21 +16,24 @@ const CONFIG = {
     initialZoom: 5,
 
     // H3 resolution to zoom level mapping
+    // Note: r6 removed due to centroid artifacts - all city events report at
+    // single coordinates, causing rate inflation up to 4.3x at fine resolutions.
+    // r5 (~250km² cells) provides adequate detail while capturing metro populations.
     zoomToResolution: {
         3: 4,
         4: 4,
         5: 5,
-        6: 6,
-        7: 6,
-        8: 6,
-        9: 6,
-        10: 6,
-        11: 6,
-        12: 6
+        6: 5,
+        7: 5,
+        8: 5,
+        9: 5,
+        10: 5,
+        11: 5,
+        12: 5
     },
 
-    // Available resolutions
-    resolutions: [4, 5, 6],
+    // Available resolutions (r6 excluded - see note above)
+    resolutions: [4, 5],
 
     // PMTiles path (relative to server root)
     tilesPath: '/data/tiles/pmtiles',

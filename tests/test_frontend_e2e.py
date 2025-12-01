@@ -32,24 +32,28 @@ class TestFrontendE2E:
         assert 3 <= zoom <= 12, f"Zoom out of range: {zoom}"
 
     def test_pmtiles_sources_load(self, page: Page, live_server: str) -> None:
-        """Test that PMTiles sources are loaded for all resolutions."""
+        """Test that PMTiles sources are loaded for all resolutions.
+
+        Note: r6 is excluded from frontend due to centroid artifacts causing
+        rate inflation up to 4.3x. Only r4 and r5 are loaded.
+        """
         page.goto(f"{live_server}/static/index.html")
         page.wait_for_selector("#map canvas", timeout=15000)
         time.sleep(3)  # Wait for all sources to load
 
-        # Check that resolution sources are loaded
+        # Check that resolution sources are loaded (r6 excluded)
         sources_loaded = page.evaluate("""
             () => {
                 const results = [];
-                for (const res of [4, 5, 6]) {
+                for (const res of [4, 5]) {
                     const source = window.map.getSource(`h3-tiles-r${res}`);
                     if (source) results.push(res);
                 }
                 return results;
             }
         """)
-        assert len(sources_loaded) == 3, f"Expected 3 sources, found {sources_loaded}"
-        assert sources_loaded == [4, 5, 6], f"Missing sources: {sources_loaded}"
+        assert len(sources_loaded) == 2, f"Expected 2 sources, found {sources_loaded}"
+        assert sources_loaded == [4, 5], f"Missing sources: {sources_loaded}"
 
     def test_h3_layer_displays(self, page: Page, live_server: str) -> None:
         """Test that the H3 cells layer is added to the map."""
@@ -61,7 +65,11 @@ class TestFrontendE2E:
         assert has_layer, "H3 cells layer not found"
 
     def test_resolution_switching_with_zoom(self, page: Page, live_server: str) -> None:
-        """Test that H3 resolution changes correctly with zoom level."""
+        """Test that H3 resolution changes correctly with zoom level.
+
+        Note: r6 is excluded due to centroid artifacts. Zoom levels 6+ now
+        use r5 as maximum resolution.
+        """
         page.goto(f"{live_server}/static/index.html")
         page.wait_for_selector("#map canvas", timeout=15000)
         time.sleep(3)
@@ -78,15 +86,15 @@ class TestFrontendE2E:
         resolution = page.evaluate("window.currentResolution")
         assert resolution == 5, f"Expected resolution 5 at zoom 5, got {resolution}"
 
-        # Test zoom level 7 -> resolution 6
+        # Test zoom level 7 -> resolution 5 (r6 excluded, max is r5)
         page.evaluate("window.map.setZoom(7)")
         time.sleep(1.5)
         resolution = page.evaluate("window.currentResolution")
-        assert resolution == 6, f"Expected resolution 6 at zoom 7, got {resolution}"
+        assert resolution == 5, f"Expected resolution 5 at zoom 7 (r6 excluded), got {resolution}"
 
-        # Resolution indicator should update
+        # Resolution indicator should show 5 (max available)
         indicator = page.locator("#current-resolution")
-        expect(indicator).to_have_text("6")
+        expect(indicator).to_have_text("5")
 
     def test_display_mode_toggle(self, page: Page, live_server: str) -> None:
         """Test that display mode toggle switches between absolute and normalized."""

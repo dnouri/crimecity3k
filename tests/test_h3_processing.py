@@ -680,6 +680,7 @@ def test_aggregate_events_handles_partial_population(
                 )
                 SELECT h3_cell, 1000.0 as population
                 FROM h3_cells
+                ORDER BY h3_cell
                 LIMIT 10
             ) TO '{partial_pop_file}' (FORMAT PARQUET)
         """)

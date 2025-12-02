@@ -665,6 +665,7 @@ def test_aggregate_events_handles_partial_population(
 
     # Create partial population covering only 10 H3 cells
     # This ensures some event cells will lack population data
+    # Note: Filter out Sammanfattning events as they're excluded during aggregation
     partial_pop_file = tmp_path / "partial_population.parquet"
     conn = duckdb.connect(":memory:")
     conn.execute("INSTALL h3 FROM community; LOAD h3;")
@@ -675,6 +676,7 @@ def test_aggregate_events_handles_partial_population(
                     SELECT DISTINCT
                         h3_latlng_to_cell_string(latitude, longitude, 5) as h3_cell
                     FROM '{events_fixture}'
+                    WHERE type NOT LIKE 'Sammanfattning%'
                 )
                 SELECT h3_cell, 1000.0 as population
                 FROM h3_cells

@@ -654,7 +654,11 @@ class TestDrillDownDrawer:
         assert search_input.input_value() == "polis", "Search input should contain typed text"
 
     def test_combined_filters_work_together(self, page: Page, live_server: str) -> None:
-        """Multiple filters should combine (AND logic)."""
+        """Multiple filters should combine (AND logic).
+
+        Tests category + search combination. Date filtering is covered
+        by test_date_preset_filters_events and test_custom_date_range_filters_events.
+        """
         page.goto(f"{live_server}/static/index.html")
         wait_for_map_ready(page)
         wait_for_tiles_rendered(page)
@@ -663,10 +667,6 @@ class TestDrillDownDrawer:
         wait_for_drawer_open(page)
         wait_for_drawer_content(page)
 
-        # Apply date filter
-        page.locator("[data-testid='date-chip-30d']").click()
-        page.wait_for_selector("[data-testid='date-chip-30d'].active", timeout=3000)
-
         # Apply category filter
         page.locator("[data-testid='category-property']").click()
         page.wait_for_selector("[data-testid='type-expansion'].visible", timeout=3000)
@@ -674,11 +674,11 @@ class TestDrillDownDrawer:
         # Apply search
         page.locator("[data-testid='search-input']").fill("Stockholm")
 
-        # Wait for content to reload after all filters
+        # Wait for content to reload after filters applied
         wait_for_drawer_content(page)
 
-        # All filters should be reflected in active state
-        # (Implementation will show active filter tags)
+        # Filters should be reflected in active state
+        assert page.locator("[data-testid='category-property'].active").is_visible()
 
     # --- Event Detail ---
 

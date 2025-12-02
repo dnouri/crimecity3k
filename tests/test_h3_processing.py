@@ -1,9 +1,11 @@
 """Integration tests for H3 spatial processing.
 
-These tests verify the population-to-H3 conversion pipeline against real SCB data.
-They test actual database operations and file I/O, not mocked behavior.
+These tests verify the population-to-H3 conversion pipeline using test fixtures.
+Each test gets an isolated copy of the GeoPackage to prevent race conditions
+when running in parallel with pytest-xdist.
 """
 
+import shutil
 from pathlib import Path
 
 import duckdb
@@ -11,6 +13,9 @@ import pytest
 
 from crimecity3k.config import Config
 from crimecity3k.h3_processing import aggregate_events_to_h3, convert_population_to_h3
+
+# Test fixture path - small subset (200 cells) of production data
+POPULATION_FIXTURE = Path("tests/fixtures/data/population_test.gpkg")
 
 
 @pytest.fixture
@@ -20,9 +25,23 @@ def config() -> Config:
 
 
 @pytest.fixture
-def input_file() -> Path:
-    """Path to SCB population GeoPackage."""
-    return Path("data/population_1km_2024.gpkg")
+def input_file(tmp_path: Path) -> Path:
+    """Copy population fixture to isolated tmp_path.
+
+    Each worker gets its own copy, preventing SQLite/GeoPackage
+    race conditions during parallel test execution.
+
+    Raises:
+        FileNotFoundError: If fixture doesn't exist (fail, not skip)
+    """
+    if not POPULATION_FIXTURE.exists():
+        raise FileNotFoundError(
+            f"Test fixture not found: {POPULATION_FIXTURE}\n"
+            "Create it with: python scripts/create_population_fixture.py"
+        )
+    isolated_copy = tmp_path / "population.gpkg"
+    shutil.copy(POPULATION_FIXTURE, isolated_copy)
+    return isolated_copy
 
 
 @pytest.fixture
@@ -46,10 +65,7 @@ def test_convert_population_to_h3_creates_valid_output(
     - Population values are positive
     - Data is non-empty
     """
-    if not input_file.exists():
-        pytest.skip(f"Input data not found: {input_file}. Run 'make {input_file}' first.")
-
-    # Execute conversion
+    # Execute conversion (fixture ensures file exists)
     convert_population_to_h3(
         input_file=input_file,
         output_file=output_file,
@@ -80,11 +96,9 @@ def test_convert_population_to_h3_creates_valid_output(
         # H3 cell format verification (15-character hex string)
         assert df["h3_cell"].str.len().eq(15).all(), "Invalid H3 cell format detected"
 
-        # Basic sanity checks
+        # Basic sanity checks (test fixture has ~776K population)
         total_population = df["population"].sum()
-        assert total_population > 1_000_000, (
-            f"Total population ({total_population:,}) seems too low for Sweden"
-        )
+        assert total_population > 100_000, f"Total population ({total_population:,}) seems too low"
 
     finally:
         conn.close()
@@ -114,9 +128,6 @@ def test_convert_population_to_h3_atomic_write_pattern(
 
     Verifies that if conversion fails, no output file or temp file is left behind.
     """
-    if not input_file.exists():
-        pytest.skip(f"Input data not found: {input_file}. Run 'make {input_file}' first.")
-
     output_file = tmp_path / "population_atomic_test.parquet"
     temp_file = output_file.with_suffix(".tmp")
 
@@ -144,9 +155,6 @@ def test_population_conservation(
     Verifies that the total population in the output matches the input,
     ensuring the spatial transformation preserves all demographic data.
     """
-    if not input_file.exists():
-        pytest.skip(f"Input data not found: {input_file}. Run 'make {input_file}' first.")
-
     output_file = tmp_path / "population_conservation_test.parquet"
 
     # Run conversion
@@ -197,9 +205,6 @@ def test_geographic_coverage_sweden(
     Verifies that all generated H3 cells are located within Sweden's
     approximate latitude/longitude boundaries.
     """
-    if not input_file.exists():
-        pytest.skip(f"Input data not found: {input_file}. Run 'make {input_file}' first.")
-
     output_file = tmp_path / "population_geography_test.parquet"
 
     # Run conversion
@@ -227,12 +232,13 @@ def test_geographic_coverage_sweden(
 
         min_lat, max_lat, min_lon, max_lon = bounds_result
 
-        # Sweden's approximate bounds (with small buffer for H3 cell centers)
+        # Verify all H3 cells are within Sweden's approximate bounds
         # Sweden extends from ~55°N to ~69°N latitude, ~11°E to ~24°E longitude
-        assert 54.5 <= min_lat <= 56.0, f"Minimum latitude {min_lat} outside expected range"
-        assert 68.0 <= max_lat <= 70.0, f"Maximum latitude {max_lat} outside expected range"
-        assert 10.0 <= min_lon <= 12.0, f"Minimum longitude {min_lon} outside expected range"
-        assert 23.0 <= max_lon <= 25.0, f"Maximum longitude {max_lon} outside expected range"
+        # (Test fixture is a subset, so we check bounds containment, not full coverage)
+        assert 54.0 <= min_lat, f"Min latitude {min_lat} south of Sweden"
+        assert max_lat <= 70.0, f"Max latitude {max_lat} north of Sweden"
+        assert 10.0 <= min_lon, f"Min longitude {min_lon} west of Sweden"
+        assert max_lon <= 25.0, f"Max longitude {max_lon} east of Sweden"
 
     finally:
         conn.close()

@@ -22,13 +22,14 @@ def _find_free_port() -> int:
 
 
 def _run_server(port: int, root_dir: Path, tiles_dir: Path) -> None:
-    """Run Starlette server in subprocess.
+    """Run FastAPI server in subprocess.
 
-    This server supports HTTP Range requests, which PMTiles requires.
+    This server supports HTTP Range requests (via Starlette's StaticFiles),
+    which PMTiles requires.
     """
     import uvicorn
 
-    from crimecity3k.dev_server import create_app
+    from crimecity3k.api.main import create_app
 
     app = create_app(root_dir, tiles_dir=tiles_dir)
     uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")
@@ -49,8 +50,9 @@ def live_server() -> Generator[str]:
     """
     port = _find_free_port()
     server_url = f"http://127.0.0.1:{port}"
-    project_root = Path(__file__).parent.parent
-    tiles_dir = Path(__file__).parent / "fixtures" / "pmtiles"
+    # Use tests/fixtures/ as server root (contains static/, data/events.parquet, etc.)
+    project_root = Path(__file__).parent / "fixtures"
+    tiles_dir = project_root / "data" / "tiles" / "pmtiles"
 
     # Start server in subprocess (uvicorn needs its own process)
     server_process = multiprocessing.Process(
@@ -58,16 +60,28 @@ def live_server() -> Generator[str]:
     )
     server_process.start()
 
-    # Wait for server to be ready
+    # Wait for server to be ready (including database initialization)
     import requests  # type: ignore[import-untyped]
 
-    for _ in range(30):
+    for _ in range(60):  # Up to 6 seconds for DB init
+        # Check if server process crashed during startup
+        if not server_process.is_alive():
+            server_process.join(timeout=1)
+            pytest.fail(
+                f"Test server crashed during startup (exit code: {server_process.exitcode})"
+            )
         try:
-            response = requests.get(f"{server_url}/static/index.html", timeout=1)
+            response = requests.get(f"{server_url}/health", timeout=1)
             if response.status_code == 200:
                 break
         except (requests.ConnectionError, requests.Timeout):
             time.sleep(0.1)
+    else:
+        # Loop completed without successful health check
+        if server_process.is_alive():
+            server_process.terminate()
+        server_process.join(timeout=5)
+        pytest.fail(f"Test server failed to respond within timeout on {server_url}")
 
     yield server_url
 
@@ -143,7 +157,7 @@ def sample_events(duckdb_conn: duckdb.DuckDBPyConnection) -> duckdb.DuckDBPyConn
     Returns:
         DuckDB connection with 'events' table loaded
     """
-    fixture_path = Path(__file__).parent / "fixtures" / "events_2024_01_15-22.parquet"
+    fixture_path = Path(__file__).parent / "fixtures" / "data" / "events.parquet"
     duckdb_conn.execute(f"""
         CREATE TABLE events AS
         SELECT * FROM '{fixture_path}'
@@ -165,7 +179,7 @@ def synthetic_population_h3(tmp_path: Path, duckdb_conn: duckdb.DuckDBPyConnecti
     Returns:
         Path to synthetic population Parquet file
     """
-    fixture_path = Path(__file__).parent / "fixtures" / "events_2024_01_15-22.parquet"
+    fixture_path = Path(__file__).parent / "fixtures" / "data" / "events.parquet"
     population_path = tmp_path / "synthetic_population_r5.parquet"
 
     duckdb_conn.execute(f"""

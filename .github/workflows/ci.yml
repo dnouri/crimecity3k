@@ -39,6 +39,8 @@ jobs:
         run: make test-fixtures
 
       - name: Run tests with coverage
+        # Using --dist loadscope keeps module-scoped fixtures (like live_server)
+        # on the same worker, preventing DuckDB extension installation races
         run: make test
 
       - name: Upload coverage report

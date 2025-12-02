@@ -273,19 +273,32 @@ function registerLayerEventHandlers() {
         }
     });
 
-    // Click outside to hide details
+    // Click outside (on map, not on features) to hide details
     map.on('click', (e) => {
         const features = map.queryRenderedFeatures(e.point, { layers: ['h3-cells'] });
         if (features.length === 0) {
-            hideCellDetails();
+            // Only close if not clicking inside the drawer
+            const drawer = document.getElementById('drill-down-drawer');
+            if (drawer && !drawer.contains(e.originalEvent.target)) {
+                hideCellDetails();
+            }
         }
     });
 }
 
 /**
- * Show cell details panel.
+ * Show cell details panel (legacy) and open drill-down drawer.
  */
 function showCellDetails(props) {
+    // Open drill-down drawer with event list
+    const h3Cell = props.h3_cell;
+    const locationName = `${props.total_count || 0} events`;
+
+    if (h3Cell && DrillDown) {
+        DrillDown.open(h3Cell, locationName);
+    }
+
+    // Also update legacy panel for backwards compatibility
     const content = document.getElementById('details-content');
     const panel = document.getElementById('cell-details');
 
@@ -352,10 +365,15 @@ function showCellDetails(props) {
 }
 
 /**
- * Hide cell details panel.
+ * Hide cell details panel and close drill-down drawer.
  */
 function hideCellDetails() {
     document.getElementById('cell-details').classList.remove('visible');
+
+    // Also close drill-down drawer if open
+    if (DrillDown && DrillDown.isOpen()) {
+        DrillDown.close();
+    }
 }
 
 /**
@@ -491,8 +509,519 @@ document.getElementById('category-filter').addEventListener('change', (e) => {
 
 document.getElementById('close-details').addEventListener('click', hideCellDetails);
 
+// ============================================
+// DRILL-DOWN DRAWER MODULE
+// ============================================
+
+const DrillDown = {
+    // State
+    currentH3Cell: null,
+    currentPage: 1,
+    perPage: 10,
+    totalEvents: 0,
+    filters: {
+        search: '',
+        startDate: null,
+        endDate: null,
+        categories: [],
+        types: []
+    },
+    debounceTimer: null,
+    abortController: null,
+
+    // DOM Elements (cached on init)
+    elements: {},
+
+    /**
+     * Initialize drill-down drawer functionality.
+     */
+    init() {
+        this.cacheElements();
+        this.bindEvents();
+    },
+
+    /**
+     * Cache DOM element references.
+     */
+    cacheElements() {
+        this.elements = {
+            drawer: document.getElementById('drill-down-drawer'),
+            closeBtn: document.getElementById('drawer-close'),
+            location: document.getElementById('drawer-location'),
+            eventCount: document.getElementById('drawer-event-count'),
+            searchInput: document.getElementById('filter-search'),
+            dateChips: document.querySelectorAll('.date-chips .filter-chip'),
+            customDateRange: document.getElementById('custom-date-range'),
+            dateStart: document.getElementById('date-start'),
+            dateEnd: document.getElementById('date-end'),
+            categoryChips: document.querySelectorAll('.category-chips .filter-chip'),
+            typeExpansion: document.getElementById('type-expansion'),
+            loadingSpinner: document.getElementById('loading-spinner'),
+            thresholdMessage: document.getElementById('threshold-message'),
+            eventList: document.getElementById('event-list'),
+            emptyState: document.getElementById('empty-state'),
+            errorState: document.getElementById('error-state'),
+            retryButton: document.getElementById('retry-button'),
+            pagination: document.getElementById('pagination'),
+            pageInfo: document.getElementById('page-info'),
+            prevBtn: document.getElementById('pagination-prev'),
+            nextBtn: document.getElementById('pagination-next')
+        };
+    },
+
+    /**
+     * Bind event listeners.
+     */
+    bindEvents() {
+        // Close button
+        this.elements.closeBtn.addEventListener('click', () => this.close());
+
+        // Escape key
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && this.isOpen()) {
+                this.close();
+            }
+        });
+
+        // Search input (debounced)
+        this.elements.searchInput.addEventListener('input', (e) => {
+            this.debounce(() => {
+                this.filters.search = e.target.value;
+                this.currentPage = 1;
+                this.fetchEvents();
+            }, 300);
+        });
+
+        // Date chips
+        this.elements.dateChips.forEach(chip => {
+            chip.addEventListener('click', () => this.handleDateChipClick(chip));
+        });
+
+        // Custom date inputs
+        this.elements.dateStart.addEventListener('change', () => this.handleCustomDateChange());
+        this.elements.dateEnd.addEventListener('change', () => this.handleCustomDateChange());
+
+        // Category chips
+        this.elements.categoryChips.forEach(chip => {
+            chip.addEventListener('click', () => this.handleCategoryClick(chip));
+        });
+
+        // Retry button
+        this.elements.retryButton.addEventListener('click', () => this.fetchEvents());
+
+        // Pagination
+        this.elements.prevBtn.addEventListener('click', () => this.goToPage(this.currentPage - 1));
+        this.elements.nextBtn.addEventListener('click', () => this.goToPage(this.currentPage + 1));
+    },
+
+    /**
+     * Open drawer for a specific H3 cell.
+     */
+    open(h3Cell, locationName = 'Events') {
+        this.currentH3Cell = h3Cell;
+        this.currentPage = 1;
+        this.resetFilters();
+
+        this.elements.location.textContent = locationName;
+        this.elements.drawer.classList.add('open');
+
+        // Hide old cell-details panel
+        document.getElementById('cell-details').classList.remove('visible');
+
+        // Focus management - focus search input after drawer opens
+        setTimeout(() => {
+            this.elements.searchInput.focus();
+        }, 100);
+
+        this.fetchEvents();
+    },
+
+    /**
+     * Close the drawer.
+     */
+    close() {
+        this.elements.drawer.classList.remove('open');
+        this.currentH3Cell = null;
+    },
+
+    /**
+     * Check if drawer is open.
+     */
+    isOpen() {
+        return this.elements.drawer.classList.contains('open');
+    },
+
+    /**
+     * Reset all filters to defaults.
+     */
+    resetFilters() {
+        this.filters = {
+            search: '',
+            startDate: null,
+            endDate: null,
+            categories: [],
+            types: []
+        };
+        this.elements.searchInput.value = '';
+
+        // Reset date chips
+        this.elements.dateChips.forEach(c => c.classList.remove('active'));
+        document.querySelector('[data-testid="date-chip-all"]').classList.add('active');
+        this.elements.customDateRange.classList.remove('visible');
+
+        // Reset category chips
+        this.elements.categoryChips.forEach(c => c.classList.remove('active'));
+        document.querySelector('[data-testid="category-all"]').classList.add('active');
+        this.elements.typeExpansion.classList.remove('visible');
+        this.elements.typeExpansion.innerHTML = '';
+    },
+
+    /**
+     * Handle date chip click.
+     */
+    handleDateChipClick(chip) {
+        // Remove active from all date chips
+        this.elements.dateChips.forEach(c => c.classList.remove('active'));
+        chip.classList.add('active');
+
+        const days = chip.dataset.days;
+        const isCustom = chip.dataset.testid === 'date-chip-custom';
+
+        if (isCustom) {
+            this.elements.customDateRange.classList.add('visible');
+            return; // Don't fetch yet, wait for date input
+        }
+
+        this.elements.customDateRange.classList.remove('visible');
+
+        if (days) {
+            const end = new Date();
+            const start = new Date();
+            start.setDate(start.getDate() - parseInt(days));
+            this.filters.startDate = start.toISOString().split('T')[0];
+            this.filters.endDate = end.toISOString().split('T')[0];
+        } else {
+            this.filters.startDate = null;
+            this.filters.endDate = null;
+        }
+
+        this.currentPage = 1;
+        this.fetchEvents();
+    },
+
+    /**
+     * Handle custom date range change.
+     */
+    handleCustomDateChange() {
+        const start = this.elements.dateStart.value;
+        const end = this.elements.dateEnd.value;
+
+        if (start && end) {
+            this.filters.startDate = start;
+            this.filters.endDate = end;
+            this.currentPage = 1;
+            this.fetchEvents();
+        }
+    },
+
+    /**
+     * Handle category chip click.
+     */
+    handleCategoryClick(chip) {
+        const category = chip.dataset.category;
+
+        if (category === 'all') {
+            // Reset to all categories
+            this.elements.categoryChips.forEach(c => c.classList.remove('active'));
+            chip.classList.add('active');
+            this.filters.categories = [];
+            this.elements.typeExpansion.classList.remove('visible');
+        } else {
+            // Toggle single category
+            document.querySelector('[data-testid="category-all"]').classList.remove('active');
+
+            if (chip.classList.contains('active')) {
+                chip.classList.remove('active');
+                this.filters.categories = this.filters.categories.filter(c => c !== category);
+            } else {
+                chip.classList.add('active');
+                this.filters.categories.push(category);
+            }
+
+            // Show type expansion for selected category
+            if (this.filters.categories.length === 1) {
+                this.showTypeExpansion(this.filters.categories[0]);
+            } else {
+                this.elements.typeExpansion.classList.remove('visible');
+            }
+
+            // If no categories selected, reset to all
+            if (this.filters.categories.length === 0) {
+                document.querySelector('[data-testid="category-all"]').classList.add('active');
+            }
+        }
+
+        this.currentPage = 1;
+        this.fetchEvents();
+    },
+
+    /**
+     * Show type expansion for a category.
+     */
+    async showTypeExpansion(category) {
+        try {
+            const response = await fetch('/api/types');
+            const data = await response.json();
+            const types = data.categories[category] || [];
+
+            if (types.length === 0) {
+                this.elements.typeExpansion.classList.remove('visible');
+                return;
+            }
+
+            let html = '';
+            types.forEach(type => {
+                const typeId = type.toLowerCase().replace(/[^a-z]/g, '');
+                html += `
+                    <div class="type-checkbox">
+                        <input type="checkbox" id="type-${typeId}" data-testid="type-${typeId}" data-type="${type}" checked>
+                        <label for="type-${typeId}">${type}</label>
+                    </div>
+                `;
+            });
+
+            this.elements.typeExpansion.innerHTML = html;
+            this.elements.typeExpansion.classList.add('visible');
+
+            // Bind checkbox events
+            this.elements.typeExpansion.querySelectorAll('input').forEach(checkbox => {
+                checkbox.addEventListener('change', () => this.handleTypeChange());
+            });
+        } catch (error) {
+            console.error('Failed to load types:', error);
+        }
+    },
+
+    /**
+     * Handle type checkbox change.
+     */
+    handleTypeChange() {
+        const checked = this.elements.typeExpansion.querySelectorAll('input:checked');
+        this.filters.types = Array.from(checked).map(cb => cb.dataset.type);
+        this.currentPage = 1;
+        this.fetchEvents();
+    },
+
+    /**
+     * Go to a specific page.
+     */
+    goToPage(page) {
+        if (page < 1) return;
+        const maxPage = Math.ceil(this.totalEvents / this.perPage);
+        if (page > maxPage) return;
+
+        this.currentPage = page;
+        this.fetchEvents();
+    },
+
+    /**
+     * Fetch events from API.
+     */
+    async fetchEvents() {
+        if (!this.currentH3Cell) return;
+
+        // Cancel any in-flight request
+        if (this.abortController) {
+            this.abortController.abort();
+        }
+        this.abortController = new AbortController();
+
+        this.showState('loading');
+
+        try {
+            const params = new URLSearchParams({
+                h3_cell: this.currentH3Cell,
+                page: this.currentPage,
+                per_page: this.perPage
+            });
+
+            if (this.filters.search) {
+                params.append('search', this.filters.search);
+            }
+            if (this.filters.startDate) {
+                params.append('start_date', this.filters.startDate);
+            }
+            if (this.filters.endDate) {
+                params.append('end_date', this.filters.endDate);
+            }
+            this.filters.categories.forEach(cat => {
+                params.append('categories', cat);
+            });
+            this.filters.types.forEach(type => {
+                params.append('types', type);
+            });
+
+            const response = await fetch(`/api/events?${params}`, {
+                signal: this.abortController.signal
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+
+            const data = await response.json();
+            this.totalEvents = data.total;
+
+            this.updateEventCount(data.total);
+            this.renderEvents(data);
+        } catch (error) {
+            // Ignore abort errors
+            if (error.name === 'AbortError') {
+                return;
+            }
+            console.error('Failed to fetch events:', error);
+            this.showState('error');
+        }
+    },
+
+    /**
+     * Update event count display.
+     */
+    updateEventCount(count) {
+        this.elements.eventCount.textContent = `${count} event${count !== 1 ? 's' : ''}`;
+    },
+
+    /**
+     * Show a specific state (loading, threshold, events, empty, error).
+     */
+    showState(state) {
+        // Hide all states
+        this.elements.loadingSpinner.classList.remove('visible');
+        this.elements.thresholdMessage.classList.remove('visible');
+        this.elements.eventList.classList.remove('visible');
+        this.elements.emptyState.classList.remove('visible');
+        this.elements.errorState.classList.remove('visible');
+        this.elements.pagination.classList.remove('visible');
+
+        switch (state) {
+            case 'loading':
+                this.elements.loadingSpinner.classList.add('visible');
+                break;
+            case 'threshold':
+                this.elements.thresholdMessage.classList.add('visible');
+                break;
+            case 'events':
+                this.elements.eventList.classList.add('visible');
+                this.elements.pagination.classList.add('visible');
+                break;
+            case 'empty':
+                this.elements.emptyState.classList.add('visible');
+                break;
+            case 'error':
+                this.elements.errorState.classList.add('visible');
+                break;
+        }
+    },
+
+    /**
+     * Render events to the list.
+     */
+    renderEvents(data) {
+        const { events, total, page, per_page } = data;
+
+        // Check threshold (total > 0 but events empty means below threshold)
+        if (total > 0 && events.length === 0) {
+            this.showState('threshold');
+            return;
+        }
+
+        // Empty state
+        if (total === 0) {
+            this.showState('empty');
+            return;
+        }
+
+        // Render event cards
+        let html = '';
+        events.forEach(event => {
+            html += this.renderEventCard(event);
+        });
+        this.elements.eventList.innerHTML = html;
+
+        // Bind card click events
+        this.elements.eventList.querySelectorAll('.event-card').forEach(card => {
+            card.addEventListener('click', () => this.toggleCardExpansion(card));
+        });
+
+        // Update pagination
+        const maxPage = Math.ceil(total / per_page);
+        this.elements.pageInfo.textContent = `Page ${page} of ${maxPage}`;
+        this.elements.prevBtn.disabled = page <= 1;
+        this.elements.nextBtn.disabled = page >= maxPage;
+
+        this.showState('events');
+    },
+
+    /**
+     * Render a single event card.
+     */
+    renderEventCard(event) {
+        const date = new Date(event.event_datetime);
+        const dateStr = date.toLocaleDateString('sv-SE') + ' ' +
+                       date.toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' });
+
+        const summary = event.summary || '';
+        const bodyContent = event.html_body || event.summary || 'No additional details available.';
+
+        return `
+            <div class="event-card ${event.category}" data-testid="event-card" data-event-id="${event.event_id}">
+                <div class="event-meta">
+                    <span class="event-date" data-testid="event-date">${dateStr}</span>
+                    <span class="event-type" data-testid="event-type">${event.type}</span>
+                </div>
+                <div class="event-location">${event.location_name}</div>
+                <div class="event-summary" data-testid="event-summary">${summary}</div>
+                <div class="event-body" data-testid="event-body">${bodyContent}</div>
+                <div class="event-actions">
+                    <a href="${event.police_url}" target="_blank" rel="noopener" class="police-link" data-testid="police-link">
+                        📋 View Police Report
+                    </a>
+                </div>
+            </div>
+        `;
+    },
+
+    /**
+     * Toggle event card expansion.
+     */
+    toggleCardExpansion(card) {
+        // Collapse any other expanded cards
+        this.elements.eventList.querySelectorAll('.event-card.expanded').forEach(c => {
+            if (c !== card) c.classList.remove('expanded');
+        });
+
+        // Toggle this card
+        card.classList.toggle('expanded');
+    },
+
+    /**
+     * Debounce utility.
+     */
+    debounce(fn, delay) {
+        clearTimeout(this.debounceTimer);
+        this.debounceTimer = setTimeout(fn, delay);
+    }
+};
+
+// Expose for map integration and testing
+window.DrillDown = DrillDown;
+window.openDrillDown = (h3Cell, locationName) => DrillDown.open(h3Cell, locationName);
+
 // Map load handler
 map.on('load', () => {
+    // Initialize drill-down drawer
+    DrillDown.init();
+
     // Initialize mobile interactions
     initMobileInteractions();
     window.addEventListener('resize', initMobileInteractions);

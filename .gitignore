@@ -6,7 +6,8 @@ data/h3/
 data/tiles/
 
 # Generated test fixtures (created by make test-fixtures)
-tests/fixtures/pmtiles/
+tests/fixtures/data/tiles/
+tests/fixtures/static/
 
 # Python
 .venv/

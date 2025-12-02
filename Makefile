@@ -64,7 +64,7 @@ format: ## Auto-format code with ruff
 	@echo "✓ Code formatted"
 
 test: ## Run all tests with coverage
-	uv run pytest tests/ -v -n auto --cov=crimecity3k --cov-report=html --cov-report=term
+	uv run pytest tests/ -n auto --cov=crimecity3k --cov-report=html --cov-report=term
 
 test-unit: ## Run unit tests only (fast, no browser)
 	uv run pytest tests/ -v -n auto -m "not e2e" --cov=crimecity3k --cov-report=term
@@ -77,10 +77,10 @@ test-fixtures: ## Generate PMTiles fixtures for E2E tests (requires tippecanoe)
 		echo "Error: tippecanoe not found. Install with: sudo apt install tippecanoe"; \
 		exit 1; \
 	fi
-	uv run python scripts/generate_test_fixtures.py
+	uv run python scripts/generate_tile_fixtures.py
 
 serve: ## Start local development server at http://localhost:8080
-	uv run python -m crimecity3k.dev_server --port 8080
+	uv run python -m crimecity3k.api.main --port 8080
 
 clean: ## Remove generated files and caches
 	rm -rf $(H3_DIR) $(TILES_DIR)

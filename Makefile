@@ -77,7 +77,7 @@ test-fixtures: ## Generate PMTiles fixtures for E2E tests (requires tippecanoe)
 		echo "Error: tippecanoe not found. Install with: sudo apt install tippecanoe"; \
 		exit 1; \
 	fi
-	uv run python scripts/generate_test_fixtures.py
+	uv run python scripts/generate_tile_fixtures.py
 
 serve: ## Start local development server at http://localhost:8080
 	uv run python -m crimecity3k.api.main --port 8080

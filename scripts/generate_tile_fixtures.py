@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate test fixture PMTiles from test events data.
+"""Generate PMTiles fixtures for E2E tests.
 
 This script creates PMTiles for E2E tests by:
 1. Creating synthetic population data (1000 per H3 cell)
@@ -8,7 +8,7 @@ This script creates PMTiles for E2E tests by:
 4. Generating PMTiles via Tippecanoe
 
 Usage:
-    python scripts/generate_test_fixtures.py
+    python scripts/generate_tile_fixtures.py
     # Or via Makefile:
     make test-fixtures
 """

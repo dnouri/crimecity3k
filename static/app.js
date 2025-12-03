@@ -296,7 +296,8 @@ function registerLayerEventHandlers() {
  */
 function showCellDetails(props) {
     const h3Cell = props.h3_cell;
-    const locationName = `${props.total_count || 0} events`;
+    // Use dominant_location from tile data (most common location in this cell)
+    const locationName = props.dominant_location || 'Unknown location';
 
     // Store current cell data for later use
     currentCellData = {
@@ -679,7 +680,6 @@ const DrillDown = {
             drawer: document.getElementById('drill-down-drawer'),
             closeBtn: document.getElementById('drawer-close'),
             location: document.getElementById('drawer-location'),
-            eventCount: document.getElementById('drawer-event-count'),
             statsSummary: document.getElementById('drawer-stats-summary'),
             searchInput: document.getElementById('filter-search'),
             dateChips: document.querySelectorAll('.date-chips .filter-chip'),
@@ -1028,11 +1028,10 @@ const DrillDown = {
     },
 
     /**
-     * Update event count display.
+     * Update event count and header stats.
      */
     updateEventCount(count) {
-        this.elements.eventCount.textContent = `${count} event${count !== 1 ? 's' : ''}`;
-        // Also update header stats with filtered count
+        // Update header stats with filtered count
         this.updateHeaderStats(count);
     },
 

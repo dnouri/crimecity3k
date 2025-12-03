@@ -468,8 +468,8 @@ class TestDrillDownDrawer:
         has_content = event_cards.count() > 0 or threshold_msg.is_visible()
         assert has_content, "Expected event cards or threshold message"
 
-    def test_event_list_shows_correct_count(self, page: Page, live_server: str) -> None:
-        """Event count header should match the number of events."""
+    def test_drawer_header_shows_stats_summary(self, page: Page, live_server: str) -> None:
+        """Drawer header should show stats summary with event count and rate."""
         page.goto(f"{live_server}/static/index.html")
         wait_for_map_ready(page)
         wait_for_tiles_rendered(page)
@@ -478,12 +478,13 @@ class TestDrillDownDrawer:
         wait_for_drawer_open(page)
         wait_for_drawer_content(page)
 
-        # Check event count display
-        event_count = page.locator("[data-testid='event-count']")
-        expect(event_count).to_be_visible()
+        # Check stats summary display (e.g., "10 events · 100.0/10k")
+        stats_summary = page.locator("[data-testid='drawer-stats-summary']")
+        expect(stats_summary).to_be_visible()
 
-        count_text = event_count.inner_text()
-        assert "event" in count_text.lower(), f"Expected 'events' in count text: {count_text}"
+        stats_text = stats_summary.inner_text()
+        assert "event" in stats_text.lower(), f"Expected 'events' in stats: {stats_text}"
+        assert "/10k" in stats_text, f"Expected rate per 10k in stats: {stats_text}"
 
     def test_event_card_shows_date_type_summary(self, page: Page, live_server: str) -> None:
         """Event cards should display date, type, and summary."""
@@ -913,13 +914,13 @@ class TestDrillDownDrawer:
         return result  # type: ignore[no-any-return]
 
     def _get_event_count(self, page: Page) -> int:
-        """Extract event count from the count display."""
-        count_el = page.locator("[data-testid='event-count']")
-        if not count_el.is_visible():
+        """Extract event count from the stats summary display."""
+        stats_el = page.locator("[data-testid='drawer-stats-summary']")
+        if not stats_el.is_visible():
             return 0
 
-        text = count_el.inner_text()
-        # Parse "42 events" -> 42
+        text = stats_el.inner_text()
+        # Parse "42 events · 100.0/10k" or "5 of 42 events · 100.0/10k" -> first number
         import re
 
         match = re.search(r"(\d+)", text)
@@ -1227,6 +1228,47 @@ class TestStatsFirstFlow:
         # Should contain "of" indicating filtered vs total
         # (e.g., "5 of 47 events" or "Showing 5 of 47")
         assert " of " in stats_text.lower(), f"Should show filtered count: {stats_text}"
+
+    def test_drawer_location_shows_city_name(self, page: Page, live_server: str) -> None:
+        """Drawer header should show location name from tile data (dominant_location)."""
+        page.goto(f"{live_server}/static/index.html")
+        wait_for_map_ready(page)
+        wait_for_tiles_rendered(page)
+
+        # Get the dominant_location from tile data before clicking
+        cell_data = page.evaluate("""
+            () => {
+                const features = window.map.queryRenderedFeatures({layers: ['h3-cells']});
+                if (!features.length) return null;
+                return {
+                    dominant_location: features[0].properties.dominant_location
+                };
+            }
+        """)
+
+        self._click_h3_cell(page)
+        page.wait_for_selector("#cell-details.visible", timeout=5000)
+        page.click("[data-testid='search-events-button']")
+        wait_for_drawer_open(page)
+
+        # Check location display - should be a city name from dominant_location
+        location_el = page.locator("[data-testid='drawer-location']")
+        expect(location_el).to_be_visible()
+
+        location_text = location_el.inner_text()
+
+        # Should NOT be a count like "42 events" or "Loading..."
+        assert "events" not in location_text.lower(), (
+            f"Location should be a place name, not event count: {location_text}"
+        )
+        assert location_text != "Loading...", "Location should not show loading state"
+
+        # Should match the dominant_location from tile data
+        if cell_data and cell_data.get("dominant_location"):
+            assert location_text == cell_data["dominant_location"], (
+                f"Location should match tile data: expected '{cell_data['dominant_location']}', "
+                f"got '{location_text}'"
+            )
 
     # --- Drawer Width ---
 

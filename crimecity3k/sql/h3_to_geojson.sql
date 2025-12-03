@@ -32,6 +32,7 @@ COPY (
                     'weapons_count', weapons_count,
                     'other_count', other_count,
                     'type_counts', type_counts,
+                    'dominant_location', dominant_location,
                     'population', population,
                     'rate_per_10000', rate_per_10000
                 )

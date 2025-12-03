@@ -30,6 +30,7 @@
 --   weapons_count     : INTEGER  (weapons-related events)
 --   other_count       : INTEGER  (uncategorized events)
 --   type_counts       : STRUCT[] (sparse array: [{type: VARCHAR, count: BIGINT}, ...])
+--   dominant_location : VARCHAR  (most common location_name in cell)
 --   population        : DOUBLE   (population in cell)
 --   rate_per_10000    : DOUBLE   (events per 10,000 residents)
 --
@@ -57,6 +58,7 @@ COPY (
         SELECT
             h3_latlng_to_cell_string(latitude, longitude, {{ resolution }}) AS h3_cell,
             type,
+            location_name,
             CASE
                 -- Traffic (Trafik): 7 types
                 WHEN type IN (
@@ -160,6 +162,16 @@ COPY (
         GROUP BY h3_cell
     ),
 
+    location_by_cell AS (
+        -- Compute dominant (most common) location_name per cell
+        -- Uses mode() aggregate to find the most frequent value
+        SELECT
+            h3_cell,
+            mode(location_name) AS dominant_location
+        FROM events_h3
+        GROUP BY h3_cell
+    ),
+
     population AS (
         -- Load population data for this resolution
         SELECT
@@ -169,7 +181,7 @@ COPY (
     ),
 
     merged AS (
-        -- Join events with population and calculate normalized rates
+        -- Join events with population and location, calculate normalized rates
         SELECT
             e.h3_cell,
             e.total_count,
@@ -182,6 +194,7 @@ COPY (
             e.weapons_count,
             e.other_count,
             e.type_counts,
+            l.dominant_location,
             COALESCE(p.population, 0.0) AS population,
 
             -- Calculate normalized rate (events per 10,000 residents)
@@ -192,6 +205,7 @@ COPY (
                 ELSE 0.0
             END AS rate_per_10000
         FROM events_aggregated e
+        LEFT JOIN location_by_cell l ON e.h3_cell = l.h3_cell
         LEFT JOIN population p ON e.h3_cell = p.h3_cell
     )
 
@@ -208,6 +222,7 @@ COPY (
         weapons_count,
         other_count,
         type_counts,
+        dominant_location,
         population,
         rate_per_10000
     FROM merged

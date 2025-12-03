@@ -54,6 +54,7 @@ def test_export_h3_to_geojson_single_cell(tmp_path: Path) -> None:
             0 as weapons_count,
             2 as other_count,
             [{'type': 'Trafikolycka', 'count': 3}, {'type': 'Stöld', 'count': 2}] as type_counts,
+            'Stockholm' as dominant_location,
             1000.0 as population,
             100.0 as rate_per_10000
     """)
@@ -123,12 +124,12 @@ def test_export_h3_to_geojson_multiple_cells(tmp_path: Path) -> None:
     conn.execute("""
         CREATE TABLE test_events AS
         SELECT * FROM (VALUES
-            ('851f94a3fffffff', 10, 5, 2, 1, 0, 0, 1, 0, 1, [], 1000.0, 100.0),
-            ('851f94abfffffff', 5, 2, 1, 0, 1, 0, 0, 0, 1, [], 500.0, 100.0),
-            ('851f94b3fffffff', 3, 0, 1, 1, 0, 0, 1, 0, 0, [], 0.0, 0.0)
+            ('851f94a3fffffff', 10, 5, 2, 1, 0, 0, 1, 0, 1, [], 'Stockholm', 1000.0, 100.0),
+            ('851f94abfffffff', 5, 2, 1, 0, 1, 0, 0, 0, 1, [], 'Malmö', 500.0, 100.0),
+            ('851f94b3fffffff', 3, 0, 1, 1, 0, 0, 1, 0, 0, [], 'Göteborg', 0.0, 0.0)
         ) AS t(h3_cell, total_count, traffic_count, property_count, violence_count,
                narcotics_count, fraud_count, public_order_count, weapons_count,
-               other_count, type_counts, population, rate_per_10000)
+               other_count, type_counts, dominant_location, population, rate_per_10000)
     """)
 
     from crimecity3k.tile_generation import export_h3_to_geojson
@@ -175,6 +176,7 @@ def test_export_h3_to_geojson_coordinate_order(tmp_path: Path) -> None:
             0 as narcotics_count, 0 as fraud_count, 0 as public_order_count,
             0 as weapons_count, 1 as other_count,
             [] as type_counts,
+            'Stockholm' as dominant_location,
             0.0 as population, 0.0 as rate_per_10000
     """)
 
@@ -223,6 +225,7 @@ def test_export_h3_to_geojson_type_counts_serialized(tmp_path: Path) -> None:
                 {'type': 'Stöld', 'count': 3},
                 {'type': 'Övrigt', 'count': 2}
             ] as type_counts,
+            'Stockholm' as dominant_location,
             1000.0 as population, 50.0 as rate_per_10000
     """)
 
@@ -268,6 +271,7 @@ def test_export_h3_to_geojson_atomic_write(tmp_path: Path) -> None:
             0 as narcotics_count, 0 as fraud_count, 0 as public_order_count,
             0 as weapons_count, 1 as other_count,
             [] as type_counts,
+            'Stockholm' as dominant_location,
             0.0 as population, 0.0 as rate_per_10000
     """)
 

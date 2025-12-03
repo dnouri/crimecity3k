@@ -38,6 +38,9 @@ const CONFIG = {
     // PMTiles path (relative to server root)
     tilesPath: '/data/tiles/pmtiles',
 
+    // Tile version for cache busting (bump when tile schema changes)
+    tileVersion: 2,
+
     // Color scale for absolute counts (red sequential)
     absoluteColors: {
         stops: [0, 10, 50, 150, 500],
@@ -68,6 +71,10 @@ let currentResolution = null;
 let currentFilter = 'all';
 let displayMode = 'absolute';
 const loadedSources = {};
+
+// Stats-first UI state
+let currentCellData = null;  // { h3_cell, properties, locationName }
+let viewState = 'none';      // 'none' | 'stats' | 'drawer'
 
 // Make state accessible for E2E tests
 window.currentResolution = null;
@@ -154,7 +161,7 @@ function loadAllSources() {
 
     for (const res of CONFIG.resolutions) {
         const sourceId = `h3-tiles-r${res}`;
-        const url = `pmtiles://${CONFIG.tilesPath}/h3_r${res}.pmtiles`;
+        const url = `pmtiles://${CONFIG.tilesPath}/h3_r${res}.pmtiles?v=${CONFIG.tileVersion}`;
 
         try {
             map.addSource(sourceId, {
@@ -287,20 +294,33 @@ function registerLayerEventHandlers() {
 }
 
 /**
- * Show cell details panel (legacy) and open drill-down drawer.
+ * Show cell details panel with stats and Search Events button.
+ * Does NOT auto-open drill-down drawer (stats-first flow).
  */
 function showCellDetails(props) {
-    // Open drill-down drawer with event list
     const h3Cell = props.h3_cell;
-    const locationName = `${props.total_count || 0} events`;
+    // Use dominant_location from tile data (most common location in this cell)
+    const locationName = props.dominant_location || 'Unknown location';
 
-    if (h3Cell && DrillDown) {
-        DrillDown.open(h3Cell, locationName);
+    // Store current cell data for later use
+    currentCellData = {
+        h3_cell: h3Cell,
+        properties: props,
+        locationName: locationName
+    };
+
+    // If drawer is already open, update it directly (Option B behavior)
+    if (viewState === 'drawer' && DrillDown && DrillDown.isOpen()) {
+        DrillDown.open(h3Cell, locationName, props);
+        return;
     }
 
-    // Also update legacy panel for backwards compatibility
+    // Update stats panel content
     const content = document.getElementById('details-content');
     const panel = document.getElementById('cell-details');
+
+    // Set title to location name
+    document.getElementById('details-title').textContent = locationName;
 
     // Basic stats
     let html = '<div class="detail-row">';
@@ -360,19 +380,50 @@ function showCellDetails(props) {
         }
     }
 
+    // Search Events button
+    html += '<div class="search-events-action">';
+    html += '<button id="search-events-button" data-testid="search-events-button" class="search-events-button">';
+    html += 'Search Events →';
+    html += '</button>';
+    html += '</div>';
+
     content.innerHTML = html;
     panel.classList.add('visible');
+    viewState = 'stats';
+
+    // Bind click handler for Search Events button
+    document.getElementById('search-events-button').addEventListener('click', openDrawerFromStats);
 }
 
 /**
- * Hide cell details panel and close drill-down drawer.
+ * Open drill-down drawer from stats view.
+ */
+function openDrawerFromStats() {
+    if (!currentCellData || !DrillDown) return;
+
+    // Hide stats panel
+    document.getElementById('cell-details').classList.remove('visible');
+
+    // Open drawer
+    DrillDown.open(
+        currentCellData.h3_cell,
+        currentCellData.locationName,
+        currentCellData.properties
+    );
+    viewState = 'drawer';
+}
+
+/**
+ * Hide cell details panel and reset state.
  */
 function hideCellDetails() {
     document.getElementById('cell-details').classList.remove('visible');
+    viewState = 'none';
+    currentCellData = null;
 
     // Also close drill-down drawer if open
     if (DrillDown && DrillDown.isOpen()) {
-        DrillDown.close();
+        DrillDown.close(false);  // false = don't return to stats
     }
 }
 
@@ -510,15 +561,102 @@ document.getElementById('category-filter').addEventListener('change', (e) => {
 document.getElementById('close-details').addEventListener('click', hideCellDetails);
 
 // ============================================
+// KEYBOARD SHORTCUTS
+// ============================================
+
+/**
+ * Global keyboard shortcuts handler.
+ * - S: Open search from stats view
+ * - Escape: Close current panel / go back
+ * - /: Focus search input (when drawer open)
+ * - ?: Show shortcuts help
+ */
+document.addEventListener('keydown', (e) => {
+    // Don't intercept when typing in an input
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
+        // But allow Escape from inputs
+        if (e.key !== 'Escape') return;
+    }
+
+    const shortcutsHelp = document.getElementById('shortcuts-help');
+    const shortcutsVisible = shortcutsHelp.classList.contains('visible');
+
+    // ? - Show shortcuts help
+    if (e.key === '?' || (e.shiftKey && e.key === '/')) {
+        e.preventDefault();
+        if (shortcutsVisible) {
+            hideShortcutsHelp();
+        } else {
+            showShortcutsHelp();
+        }
+        return;
+    }
+
+    // Escape - context dependent
+    if (e.key === 'Escape') {
+        // First close shortcuts help if open
+        if (shortcutsVisible) {
+            hideShortcutsHelp();
+            return;
+        }
+
+        // Then handle based on view state
+        if (viewState === 'drawer' && DrillDown && DrillDown.isOpen()) {
+            DrillDown.close();  // Returns to stats (Option A)
+        } else if (viewState === 'stats') {
+            hideCellDetails();
+        }
+        return;
+    }
+
+    // S - Open search from stats view
+    if (e.key === 's' || e.key === 'S') {
+        if (viewState === 'stats' && currentCellData) {
+            e.preventDefault();
+            openDrawerFromStats();
+        }
+        return;
+    }
+
+    // / - Focus search input (when drawer open)
+    if (e.key === '/') {
+        if (viewState === 'drawer' && DrillDown && DrillDown.isOpen()) {
+            e.preventDefault();
+            DrillDown.elements.searchInput.focus();
+        }
+        return;
+    }
+});
+
+/**
+ * Show keyboard shortcuts help modal.
+ */
+function showShortcutsHelp() {
+    document.getElementById('shortcuts-help').classList.add('visible');
+}
+
+/**
+ * Hide keyboard shortcuts help modal.
+ */
+function hideShortcutsHelp() {
+    document.getElementById('shortcuts-help').classList.remove('visible');
+}
+
+// Shortcuts help close button
+document.getElementById('shortcuts-close').addEventListener('click', hideShortcutsHelp);
+
+// ============================================
 // DRILL-DOWN DRAWER MODULE
 // ============================================
 
 const DrillDown = {
     // State
     currentH3Cell: null,
+    cellProps: null,         // Cell properties for header stats display
+    cellTotalEvents: 0,      // Total events in cell (for "X of Y" display)
     currentPage: 1,
     perPage: 10,
-    totalEvents: 0,
+    totalEvents: 0,          // Filtered/current total
     filters: {
         search: '',
         startDate: null,
@@ -548,7 +686,7 @@ const DrillDown = {
             drawer: document.getElementById('drill-down-drawer'),
             closeBtn: document.getElementById('drawer-close'),
             location: document.getElementById('drawer-location'),
-            eventCount: document.getElementById('drawer-event-count'),
+            statsSummary: document.getElementById('drawer-stats-summary'),
             searchInput: document.getElementById('filter-search'),
             dateChips: document.querySelectorAll('.date-chips .filter-chip'),
             customDateRange: document.getElementById('custom-date-range'),
@@ -576,12 +714,7 @@ const DrillDown = {
         // Close button
         this.elements.closeBtn.addEventListener('click', () => this.close());
 
-        // Escape key
-        document.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape' && this.isOpen()) {
-                this.close();
-            }
-        });
+        // Note: Escape key is handled globally in the keyboard shortcuts section
 
         // Search input (debounced)
         this.elements.searchInput.addEventListener('input', (e) => {
@@ -616,17 +749,22 @@ const DrillDown = {
 
     /**
      * Open drawer for a specific H3 cell.
+     * @param {string} h3Cell - The H3 cell ID
+     * @param {string} locationName - Display name for the location
+     * @param {object} cellProps - Cell properties (total_count, rate_per_10000, etc.)
      */
-    open(h3Cell, locationName = 'Events') {
+    open(h3Cell, locationName = 'Events', cellProps = null) {
         this.currentH3Cell = h3Cell;
+        this.cellProps = cellProps;
+        this.cellTotalEvents = cellProps?.total_count || 0;
         this.currentPage = 1;
         this.resetFilters();
 
         this.elements.location.textContent = locationName;
         this.elements.drawer.classList.add('open');
 
-        // Hide old cell-details panel
-        document.getElementById('cell-details').classList.remove('visible');
+        // Update header stats summary
+        this.updateHeaderStats();
 
         // Focus management - focus search input after drawer opens
         setTimeout(() => {
@@ -638,10 +776,21 @@ const DrillDown = {
 
     /**
      * Close the drawer.
+     * @param {boolean} returnToStats - If true, show stats panel again (Option A behavior)
      */
-    close() {
+    close(returnToStats = true) {
         this.elements.drawer.classList.remove('open');
-        this.currentH3Cell = null;
+
+        if (returnToStats && currentCellData) {
+            // Return to stats view (Option A)
+            document.getElementById('cell-details').classList.add('visible');
+            viewState = 'stats';
+        } else {
+            // Full close
+            this.currentH3Cell = null;
+            this.cellProps = null;
+            viewState = 'none';
+        }
     },
 
     /**
@@ -885,10 +1034,41 @@ const DrillDown = {
     },
 
     /**
-     * Update event count display.
+     * Update event count and header stats.
      */
     updateEventCount(count) {
-        this.elements.eventCount.textContent = `${count} event${count !== 1 ? 's' : ''}`;
+        // Update header stats with filtered count
+        this.updateHeaderStats(count);
+    },
+
+    /**
+     * Update header stats summary display.
+     * Shows "X of Y events · Z/10k" format, where X is filtered count, Y is cell total.
+     */
+    updateHeaderStats(filteredCount = null) {
+        const statsEl = this.elements.statsSummary;
+        if (!statsEl) return;
+
+        const rate = this.cellProps?.rate_per_10000?.toFixed(1) || '0.0';
+        const cellTotal = this.cellTotalEvents;
+
+        // Check if any filters are active
+        const hasActiveFilters = this.filters.search ||
+            this.filters.startDate ||
+            this.filters.endDate ||
+            this.filters.categories.length > 0 ||
+            this.filters.types.length > 0;
+
+        let text;
+        if (filteredCount !== null && hasActiveFilters && filteredCount !== cellTotal) {
+            // Show filtered vs total
+            text = `${filteredCount} of ${cellTotal} events · ${rate}/10k`;
+        } else {
+            // Show total only
+            text = `${cellTotal} events · ${rate}/10k`;
+        }
+
+        statsEl.textContent = text;
     },
 
     /**

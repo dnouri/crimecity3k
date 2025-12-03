@@ -300,6 +300,7 @@ def test_aggregate_events_to_h3_creates_valid_output(
             "weapons_count",
             "other_count",
             "type_counts",
+            "dominant_location",
             "population",
             "rate_per_10000",
         }

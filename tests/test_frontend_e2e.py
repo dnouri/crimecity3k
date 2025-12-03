@@ -468,8 +468,8 @@ class TestDrillDownDrawer:
         has_content = event_cards.count() > 0 or threshold_msg.is_visible()
         assert has_content, "Expected event cards or threshold message"
 
-    def test_event_list_shows_correct_count(self, page: Page, live_server: str) -> None:
-        """Event count header should match the number of events."""
+    def test_drawer_header_shows_stats_summary(self, page: Page, live_server: str) -> None:
+        """Drawer header should show stats summary with event count and rate."""
         page.goto(f"{live_server}/static/index.html")
         wait_for_map_ready(page)
         wait_for_tiles_rendered(page)
@@ -478,12 +478,13 @@ class TestDrillDownDrawer:
         wait_for_drawer_open(page)
         wait_for_drawer_content(page)
 
-        # Check event count display
-        event_count = page.locator("[data-testid='event-count']")
-        expect(event_count).to_be_visible()
+        # Check stats summary display (e.g., "10 events · 100.0/10k")
+        stats_summary = page.locator("[data-testid='drawer-stats-summary']")
+        expect(stats_summary).to_be_visible()
 
-        count_text = event_count.inner_text()
-        assert "event" in count_text.lower(), f"Expected 'events' in count text: {count_text}"
+        stats_text = stats_summary.inner_text()
+        assert "event" in stats_text.lower(), f"Expected 'events' in stats: {stats_text}"
+        assert "/10k" in stats_text, f"Expected rate per 10k in stats: {stats_text}"
 
     def test_event_card_shows_date_type_summary(self, page: Page, live_server: str) -> None:
         """Event cards should display date, type, and summary."""
@@ -879,6 +880,420 @@ class TestDrillDownDrawer:
     # --- Helper Methods ---
 
     def _click_h3_cell(self, page: Page) -> dict[str, float | str] | None:
+        """Find and click an H3 cell on the map, then open the drawer.
+
+        With the stats-first flow, clicking a cell shows stats panel first.
+        This helper also clicks the Search Events button to open the drawer.
+        """
+        result = page.evaluate("""
+            () => {
+                const features = window.map.queryRenderedFeatures({layers: ['h3-cells']});
+                if (features.length === 0) return null;
+
+                const feature = features[0];
+                const bounds = feature.geometry.coordinates[0];
+                let sumX = 0, sumY = 0;
+                for (const coord of bounds) {
+                    const point = window.map.project(coord);
+                    sumX += point.x;
+                    sumY += point.y;
+                }
+                return {
+                    x: sumX / bounds.length,
+                    y: sumY / bounds.length,
+                    h3_cell: feature.properties.h3_cell
+                };
+            }
+        """)
+
+        if result:
+            page.click("#map canvas", position={"x": result["x"], "y": result["y"]})
+            # Stats-first flow: wait for stats panel, then click Search button
+            page.wait_for_selector("#cell-details.visible", timeout=5000)
+            page.click("[data-testid='search-events-button']")
+        return result  # type: ignore[no-any-return]
+
+    def _get_event_count(self, page: Page) -> int:
+        """Extract event count from the stats summary display."""
+        stats_el = page.locator("[data-testid='drawer-stats-summary']")
+        if not stats_el.is_visible():
+            return 0
+
+        text = stats_el.inner_text()
+        # Parse "42 events · 100.0/10k" or "5 of 42 events · 100.0/10k" -> first number
+        import re
+
+        match = re.search(r"(\d+)", text)
+        return int(match.group(1)) if match else 0
+
+
+@pytest.mark.e2e
+class TestStatsFirstFlow:
+    """E2E tests for the stats-first UI flow.
+
+    This test class verifies the new sequential interaction model:
+    1. Click cell -> stats panel appears (drawer does NOT auto-open)
+    2. Click "Search Events" button -> drawer opens, stats hides
+    3. Escape from drawer -> return to stats
+    4. Escape from stats -> close everything
+
+    Also tests keyboard shortcuts: S (search), Escape, / (focus search), ? (help).
+    """
+
+    # --- Core Flow Tests ---
+
+    def test_click_cell_shows_stats_only_not_drawer(self, page: Page, live_server: str) -> None:
+        """Clicking a cell should show stats panel but NOT open drawer."""
+        page.goto(f"{live_server}/static/index.html")
+        wait_for_map_ready(page)
+        wait_for_tiles_rendered(page)
+
+        # Click a cell
+        self._click_h3_cell(page)
+
+        # Stats panel should be visible
+        stats_panel = page.locator("#cell-details")
+        page.wait_for_selector("#cell-details.visible", timeout=5000)
+        has_visible_class = stats_panel.evaluate("el => el.classList.contains('visible')")
+        assert has_visible_class, "Stats panel should be visible after clicking cell"
+
+        # Drawer should NOT be open
+        drawer = page.locator("[data-testid='drill-down-drawer']")
+        has_open_class = drawer.evaluate("el => el.classList.contains('open')")
+        assert not has_open_class, "Drawer should NOT auto-open when clicking cell"
+
+    def test_stats_panel_has_search_button(self, page: Page, live_server: str) -> None:
+        """Stats panel should have a 'Search Events' button."""
+        page.goto(f"{live_server}/static/index.html")
+        wait_for_map_ready(page)
+        wait_for_tiles_rendered(page)
+
+        self._click_h3_cell(page)
+
+        # Wait for stats panel
+        page.wait_for_selector("#cell-details.visible", timeout=5000)
+
+        # Search button should exist
+        search_button = page.locator("[data-testid='search-events-button']")
+        expect(search_button).to_be_visible()
+        expect(search_button).to_contain_text("Search Events")
+
+    def test_search_button_opens_drawer_hides_stats(self, page: Page, live_server: str) -> None:
+        """Clicking 'Search Events' should open drawer and hide stats panel."""
+        page.goto(f"{live_server}/static/index.html")
+        wait_for_map_ready(page)
+        wait_for_tiles_rendered(page)
+
+        self._click_h3_cell(page)
+        page.wait_for_selector("#cell-details.visible", timeout=5000)
+
+        # Click search button
+        page.click("[data-testid='search-events-button']")
+
+        # Drawer should open
+        wait_for_drawer_open(page)
+
+        # Stats panel should be hidden
+        stats_panel = page.locator("#cell-details")
+        has_visible_class = stats_panel.evaluate("el => el.classList.contains('visible')")
+        assert not has_visible_class, "Stats panel should hide when drawer opens"
+
+    def test_escape_from_drawer_returns_to_stats(self, page: Page, live_server: str) -> None:
+        """Pressing Escape in drawer should close drawer and show stats again."""
+        page.goto(f"{live_server}/static/index.html")
+        wait_for_map_ready(page)
+        wait_for_tiles_rendered(page)
+
+        # Open stats -> drawer
+        self._click_h3_cell(page)
+        page.wait_for_selector("#cell-details.visible", timeout=5000)
+        page.click("[data-testid='search-events-button']")
+        wait_for_drawer_open(page)
+
+        # Press Escape
+        page.keyboard.press("Escape")
+
+        # Drawer should close
+        wait_for_drawer_closed(page)
+
+        # Stats should reappear
+        stats_panel = page.locator("#cell-details")
+        page.wait_for_selector("#cell-details.visible", timeout=5000)
+        has_visible_class = stats_panel.evaluate("el => el.classList.contains('visible')")
+        assert has_visible_class, "Stats panel should reappear after closing drawer"
+
+    def test_escape_from_stats_closes_stats(self, page: Page, live_server: str) -> None:
+        """Pressing Escape in stats view should close stats panel entirely."""
+        page.goto(f"{live_server}/static/index.html")
+        wait_for_map_ready(page)
+        wait_for_tiles_rendered(page)
+
+        self._click_h3_cell(page)
+        page.wait_for_selector("#cell-details.visible", timeout=5000)
+
+        # Press Escape
+        page.keyboard.press("Escape")
+
+        # Stats should close
+        stats_panel = page.locator("#cell-details")
+        page.wait_for_function(
+            "!document.getElementById('cell-details').classList.contains('visible')", timeout=3000
+        )
+        has_visible_class = stats_panel.evaluate("el => el.classList.contains('visible')")
+        assert not has_visible_class, "Stats panel should close on Escape"
+
+    def test_close_drawer_button_returns_to_stats(self, page: Page, live_server: str) -> None:
+        """Clicking drawer X button should close drawer and show stats."""
+        page.goto(f"{live_server}/static/index.html")
+        wait_for_map_ready(page)
+        wait_for_tiles_rendered(page)
+
+        # Open stats -> drawer
+        self._click_h3_cell(page)
+        page.wait_for_selector("#cell-details.visible", timeout=5000)
+        page.click("[data-testid='search-events-button']")
+        wait_for_drawer_open(page)
+
+        # Click close button
+        page.click("[data-testid='drawer-close']")
+
+        # Should return to stats view
+        wait_for_drawer_closed(page)
+        stats_panel = page.locator("#cell-details")
+        page.wait_for_selector("#cell-details.visible", timeout=5000)
+        has_visible_class = stats_panel.evaluate("el => el.classList.contains('visible')")
+        assert has_visible_class, "Stats panel should reappear after closing drawer"
+
+    def test_click_different_cell_while_drawer_open_updates_drawer(
+        self, page: Page, live_server: str
+    ) -> None:
+        """Clicking a different cell while drawer is open should update drawer (Option B)."""
+        page.goto(f"{live_server}/static/index.html")
+        wait_for_map_ready(page)
+        wait_for_tiles_rendered(page)
+
+        # Get two different cells
+        cells = page.evaluate("""
+            () => {
+                const features = window.map.queryRenderedFeatures({layers: ['h3-cells']});
+                if (features.length < 2) return null;
+                return features.slice(0, 2).map(f => {
+                    const bounds = f.geometry.coordinates[0];
+                    let sumX = 0, sumY = 0;
+                    for (const coord of bounds) {
+                        const pt = window.map.project(coord);
+                        sumX += pt.x; sumY += pt.y;
+                    }
+                    return {
+                        x: sumX / bounds.length,
+                        y: sumY / bounds.length,
+                        h3_cell: f.properties.h3_cell
+                    };
+                });
+            }
+        """)
+
+        if not cells or len(cells) < 2:
+            pytest.skip("Need at least 2 cells to test this behavior")
+
+        # Click first cell, open drawer
+        page.click("#map canvas", position={"x": cells[0]["x"], "y": cells[0]["y"]})
+        page.wait_for_selector("#cell-details.visible", timeout=5000)
+        page.click("[data-testid='search-events-button']")
+        wait_for_drawer_open(page)
+
+        first_cell = page.evaluate("window.DrillDown.currentH3Cell")
+
+        # Click second cell
+        page.click("#map canvas", position={"x": cells[1]["x"], "y": cells[1]["y"]})
+
+        # Drawer should stay open but update to new cell
+        page.wait_for_function(f"window.DrillDown.currentH3Cell !== '{first_cell}'", timeout=5000)
+
+        # Drawer should still be open (not reset to stats)
+        drawer = page.locator("[data-testid='drill-down-drawer']")
+        has_open_class = drawer.evaluate("el => el.classList.contains('open')")
+        assert has_open_class, "Drawer should stay open when clicking different cell"
+
+    # --- Keyboard Shortcuts ---
+
+    def test_s_key_opens_drawer_from_stats(self, page: Page, live_server: str) -> None:
+        """Pressing 'S' in stats view should open drawer."""
+        page.goto(f"{live_server}/static/index.html")
+        wait_for_map_ready(page)
+        wait_for_tiles_rendered(page)
+
+        self._click_h3_cell(page)
+        page.wait_for_selector("#cell-details.visible", timeout=5000)
+
+        # Press S
+        page.keyboard.press("s")
+
+        # Drawer should open
+        wait_for_drawer_open(page)
+
+    def test_slash_key_focuses_search_input(self, page: Page, live_server: str) -> None:
+        """Pressing '/' when drawer is open should focus search input."""
+        page.goto(f"{live_server}/static/index.html")
+        wait_for_map_ready(page)
+        wait_for_tiles_rendered(page)
+
+        # Open drawer
+        self._click_h3_cell(page)
+        page.wait_for_selector("#cell-details.visible", timeout=5000)
+        page.click("[data-testid='search-events-button']")
+        wait_for_drawer_open(page)
+
+        # Click somewhere else to unfocus search
+        page.click(".drawer-header")
+
+        # Press /
+        page.keyboard.press("/")
+
+        # Search input should be focused
+        is_focused = page.evaluate(
+            "document.activeElement === document.getElementById('filter-search')"
+        )
+        assert is_focused, "Search input should be focused after pressing /"
+
+    def test_question_mark_shows_shortcuts_help(self, page: Page, live_server: str) -> None:
+        """Pressing '?' should show keyboard shortcuts help."""
+        page.goto(f"{live_server}/static/index.html")
+        wait_for_map_ready(page)
+        wait_for_tiles_rendered(page)
+
+        # Press ?
+        page.keyboard.press("Shift+/")  # ? is Shift+/
+
+        # Help modal/panel should appear
+        help_panel = page.locator("[data-testid='shortcuts-help']")
+        expect(help_panel).to_be_visible(timeout=3000)
+
+    # --- Drawer Header Stats ---
+
+    def test_drawer_header_shows_cell_stats_summary(self, page: Page, live_server: str) -> None:
+        """Drawer header should show total events and rate per 10k."""
+        page.goto(f"{live_server}/static/index.html")
+        wait_for_map_ready(page)
+        wait_for_tiles_rendered(page)
+
+        # Get cell data before clicking
+        cell_data = page.evaluate("""
+            () => {
+                const features = window.map.queryRenderedFeatures({layers: ['h3-cells']});
+                if (!features.length) return null;
+                return {
+                    total_count: features[0].properties.total_count,
+                    rate_per_10000: features[0].properties.rate_per_10000
+                };
+            }
+        """)
+
+        self._click_h3_cell(page)
+        page.wait_for_selector("#cell-details.visible", timeout=5000)
+        page.click("[data-testid='search-events-button']")
+        wait_for_drawer_open(page)
+
+        # Check header stats
+        header_stats = page.locator("[data-testid='drawer-stats-summary']")
+        expect(header_stats).to_be_visible()
+
+        stats_text = header_stats.inner_text()
+        assert str(cell_data["total_count"]) in stats_text, "Should show total count"
+        # Rate should be shown (might be formatted)
+        assert "/10k" in stats_text or "per 10" in stats_text, "Should show rate"
+
+    def test_drawer_header_shows_filtered_count(self, page: Page, live_server: str) -> None:
+        """Drawer header should show 'X of Y events' when filters are active."""
+        page.goto(f"{live_server}/static/index.html")
+        wait_for_map_ready(page)
+        wait_for_tiles_rendered(page)
+
+        self._click_h3_cell(page)
+        page.wait_for_selector("#cell-details.visible", timeout=5000)
+        page.click("[data-testid='search-events-button']")
+        wait_for_drawer_open(page)
+        wait_for_drawer_content(page)
+
+        # Apply a filter (7 days)
+        page.click("[data-testid='date-chip-7d']")
+
+        # Wait for content to reload
+        page.wait_for_timeout(500)
+
+        # Header should show "X of Y" format
+        header_stats = page.locator("[data-testid='drawer-stats-summary']")
+        stats_text = header_stats.inner_text()
+
+        # Should contain "of" indicating filtered vs total
+        # (e.g., "5 of 47 events" or "Showing 5 of 47")
+        assert " of " in stats_text.lower(), f"Should show filtered count: {stats_text}"
+
+    def test_drawer_location_shows_city_name(self, page: Page, live_server: str) -> None:
+        """Drawer header should show location name from tile data (dominant_location)."""
+        page.goto(f"{live_server}/static/index.html")
+        wait_for_map_ready(page)
+        wait_for_tiles_rendered(page)
+
+        # Get the dominant_location from tile data before clicking
+        cell_data = page.evaluate("""
+            () => {
+                const features = window.map.queryRenderedFeatures({layers: ['h3-cells']});
+                if (!features.length) return null;
+                return {
+                    dominant_location: features[0].properties.dominant_location
+                };
+            }
+        """)
+
+        self._click_h3_cell(page)
+        page.wait_for_selector("#cell-details.visible", timeout=5000)
+        page.click("[data-testid='search-events-button']")
+        wait_for_drawer_open(page)
+
+        # Check location display - should be a city name from dominant_location
+        location_el = page.locator("[data-testid='drawer-location']")
+        expect(location_el).to_be_visible()
+
+        location_text = location_el.inner_text()
+
+        # Should NOT be a count like "42 events" or "Loading..."
+        assert "events" not in location_text.lower(), (
+            f"Location should be a place name, not event count: {location_text}"
+        )
+        assert location_text != "Loading...", "Location should not show loading state"
+
+        # Should match the dominant_location from tile data
+        if cell_data and cell_data.get("dominant_location"):
+            assert location_text == cell_data["dominant_location"], (
+                f"Location should match tile data: expected '{cell_data['dominant_location']}', "
+                f"got '{location_text}'"
+            )
+
+    # --- Drawer Width ---
+
+    def test_drawer_is_480px_wide(self, page: Page, live_server: str) -> None:
+        """Drawer should be 480px wide (increased from 420px)."""
+        page.goto(f"{live_server}/static/index.html")
+        wait_for_map_ready(page)
+        wait_for_tiles_rendered(page)
+
+        self._click_h3_cell(page)
+        page.wait_for_selector("#cell-details.visible", timeout=5000)
+        page.click("[data-testid='search-events-button']")
+        wait_for_drawer_open(page)
+
+        width = page.evaluate("""
+            () => {
+                const drawer = document.querySelector('.drill-down-drawer');
+                return parseInt(window.getComputedStyle(drawer).width);
+            }
+        """)
+        assert width == 480, f"Drawer should be 480px wide, got {width}px"
+
+    # --- Helper Methods ---
+
+    def _click_h3_cell(self, page: Page) -> dict[str, float | str] | None:
         """Find and click an H3 cell on the map."""
         result = page.evaluate("""
             () => {
@@ -904,16 +1319,3 @@ class TestDrillDownDrawer:
         if result:
             page.click("#map canvas", position={"x": result["x"], "y": result["y"]})
         return result  # type: ignore[no-any-return]
-
-    def _get_event_count(self, page: Page) -> int:
-        """Extract event count from the count display."""
-        count_el = page.locator("[data-testid='event-count']")
-        if not count_el.is_visible():
-            return 0
-
-        text = count_el.inner_text()
-        # Parse "42 events" -> 42
-        import re
-
-        match = re.search(r"(\d+)", text)
-        return int(match.group(1)) if match else 0

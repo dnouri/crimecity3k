@@ -157,6 +157,7 @@ def generate_pmtiles(
         "weapons_count",
         "other_count",
         "type_counts",
+        "dominant_location",
         "population",
         "rate_per_10000",
     ]

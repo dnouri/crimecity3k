@@ -65,6 +65,7 @@
             <div class="drawer-title">
                 <h2 id="drawer-location">Events</h2>
                 <span id="drawer-event-count" data-testid="event-count" aria-live="polite">0 events</span>
+                <span id="drawer-stats-summary" data-testid="drawer-stats-summary" class="drawer-stats-summary" aria-live="polite"></span>
             </div>
             <button id="drawer-close" class="drawer-close" data-testid="drawer-close"
                     aria-label="Close event drawer">&times;</button>
@@ -144,6 +145,34 @@
             <button id="pagination-prev" data-testid="pagination-prev" disabled>&larr; Prev</button>
             <span id="page-info" data-testid="page-info">Page 1 of 1</span>
             <button id="pagination-next" data-testid="pagination-next">Next &rarr;</button>
+        </div>
+    </div>
+
+    <!-- Keyboard shortcuts help modal -->
+    <div id="shortcuts-help" class="shortcuts-help" data-testid="shortcuts-help" role="dialog" aria-modal="true" aria-labelledby="shortcuts-title">
+        <div class="shortcuts-content">
+            <div class="shortcuts-header">
+                <h3 id="shortcuts-title">Keyboard Shortcuts</h3>
+                <button id="shortcuts-close" class="shortcuts-close" aria-label="Close">&times;</button>
+            </div>
+            <dl class="shortcuts-list">
+                <div class="shortcut-item">
+                    <dt><kbd>S</kbd></dt>
+                    <dd>Open search from stats view</dd>
+                </div>
+                <div class="shortcut-item">
+                    <dt><kbd>Esc</kbd></dt>
+                    <dd>Close current panel / go back</dd>
+                </div>
+                <div class="shortcut-item">
+                    <dt><kbd>/</kbd></dt>
+                    <dd>Focus search input</dd>
+                </div>
+                <div class="shortcut-item">
+                    <dt><kbd>?</kbd></dt>
+                    <dd>Show this help</dd>
+                </div>
+            </dl>
         </div>
     </div>
 

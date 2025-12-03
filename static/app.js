@@ -316,6 +316,9 @@ function showCellDetails(props) {
     const content = document.getElementById('details-content');
     const panel = document.getElementById('cell-details');
 
+    // Set title to location name
+    document.getElementById('details-title').textContent = locationName;
+
     // Basic stats
     let html = '<div class="detail-row">';
     html += '<span class="detail-label">Total Events</span>';

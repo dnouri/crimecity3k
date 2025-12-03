@@ -38,6 +38,9 @@ const CONFIG = {
     // PMTiles path (relative to server root)
     tilesPath: '/data/tiles/pmtiles',
 
+    // Tile version for cache busting (bump when tile schema changes)
+    tileVersion: 2,
+
     // Color scale for absolute counts (red sequential)
     absoluteColors: {
         stops: [0, 10, 50, 150, 500],
@@ -158,7 +161,7 @@ function loadAllSources() {
 
     for (const res of CONFIG.resolutions) {
         const sourceId = `h3-tiles-r${res}`;
-        const url = `pmtiles://${CONFIG.tilesPath}/h3_r${res}.pmtiles`;
+        const url = `pmtiles://${CONFIG.tilesPath}/h3_r${res}.pmtiles?v=${CONFIG.tileVersion}`;
 
         try {
             map.addSource(sourceId, {

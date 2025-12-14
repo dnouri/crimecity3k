@@ -1115,6 +1115,78 @@ class TestStatsFirstFlow:
         has_open_class = drawer.evaluate("el => el.classList.contains('open')")
         assert has_open_class, "Drawer should stay open when clicking different cell"
 
+    def test_filters_preserved_when_clicking_different_cell(
+        self, page: Page, live_server: str
+    ) -> None:
+        """Filters should be preserved when clicking a different cell while drawer is open."""
+        page.goto(f"{live_server}/static/index.html")
+        wait_for_map_ready(page)
+        wait_for_tiles_rendered(page)
+
+        # Get two different cells
+        cells = page.evaluate("""
+            () => {
+                const features = window.map.queryRenderedFeatures({layers: ['h3-cells']});
+                if (features.length < 2) return null;
+                return features.slice(0, 2).map(f => {
+                    const bounds = f.geometry.coordinates[0];
+                    let sumX = 0, sumY = 0;
+                    for (const coord of bounds) {
+                        const pt = window.map.project(coord);
+                        sumX += pt.x; sumY += pt.y;
+                    }
+                    return { x: sumX / bounds.length, y: sumY / bounds.length };
+                });
+            }
+        """)
+
+        if not cells or len(cells) < 2:
+            pytest.skip("Need at least 2 cells to test filter preservation")
+
+        # Click first cell and open drawer
+        page.click("#map canvas", position={"x": cells[0]["x"], "y": cells[0]["y"]})
+        page.wait_for_selector("#cell-details.visible", timeout=5000)
+        page.click("[data-testid='search-events-button']")
+        wait_for_drawer_open(page)
+
+        # Apply filters: search text and date preset
+        page.fill("#filter-search", "test filter")
+        page.click("[data-testid='date-chip-7d']")
+        page.wait_for_timeout(300)
+
+        # Verify filters are active before clicking second cell
+        filters_before = page.evaluate("""
+            () => ({
+                search: window.DrillDown.filters.search,
+                startDate: window.DrillDown.filters.startDate
+            })
+        """)
+        assert filters_before["search"] == "test filter", "Search filter should be set"
+        assert filters_before["startDate"] is not None, "Date filter should be set"
+
+        # Click second cell
+        page.click("#map canvas", position={"x": cells[1]["x"], "y": cells[1]["y"]})
+        page.wait_for_timeout(500)
+
+        # Filters should be preserved
+        filters_after = page.evaluate("""
+            () => ({
+                search: window.DrillDown.filters.search,
+                startDate: window.DrillDown.filters.startDate,
+                searchInputValue: document.getElementById('filter-search').value,
+                dateChip7dActive: document.querySelector(
+                    '[data-testid="date-chip-7d"]'
+                ).classList.contains('active')
+            })
+        """)
+
+        assert filters_after["search"] == "test filter", "Search filter should be preserved"
+        assert filters_after["searchInputValue"] == "test filter", (
+            "Search input should retain value"
+        )
+        assert filters_after["startDate"] is not None, "Date filter should be preserved"
+        assert filters_after["dateChip7dActive"], "7-day chip should still be active"
+
     # --- Keyboard Shortcuts ---
 
     def test_s_key_opens_drawer_from_stats(self, page: Page, live_server: str) -> None:

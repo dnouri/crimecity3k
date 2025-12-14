@@ -754,11 +754,17 @@ const DrillDown = {
      * @param {object} cellProps - Cell properties (total_count, rate_per_10000, etc.)
      */
     open(h3Cell, locationName = 'Events', cellProps = null) {
+        // Only reset filters when opening fresh (not when switching cells)
+        const isAlreadyOpen = this.isOpen();
+
         this.currentH3Cell = h3Cell;
         this.cellProps = cellProps;
         this.cellTotalEvents = cellProps?.total_count || 0;
         this.currentPage = 1;
-        this.resetFilters();
+
+        if (!isAlreadyOpen) {
+            this.resetFilters();
+        }
 
         this.elements.location.textContent = locationName;
         this.elements.drawer.classList.add('open');

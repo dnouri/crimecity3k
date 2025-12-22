@@ -163,7 +163,11 @@ async def get_types(request: Request) -> TypeHierarchy:
 @app.get("/api/events", response_model=EventsListResponse, tags=["Events"])
 async def get_events(
     request: Request,
-    h3_cell: Annotated[str, Query(description="H3 cell ID to query events for")],
+    h3_cell: Annotated[str | None, Query(description="H3 cell ID to query events for")] = None,
+    location_name: Annotated[
+        str | None,
+        Query(min_length=1, description="Municipality/location name (case-insensitive)"),
+    ] = None,
     start_date: Annotated[date | None, Query(description="Filter start date")] = None,
     end_date: Annotated[date | None, Query(description="Filter end date")] = None,
     categories: Annotated[
@@ -177,15 +181,23 @@ async def get_events(
     page: Annotated[int, Query(ge=1, description="Page number (1-indexed)")] = 1,
     per_page: Annotated[int, Query(ge=1, le=100, description="Events per page (max 100)")] = 50,
 ) -> EventsListResponse:
-    """Query events within an H3 cell with optional filtering.
+    """Query events within an H3 cell or location with optional filtering.
+
+    Provide either h3_cell OR location_name (not both).
 
     Supports filtering by date range, categories, types, and full-text search.
     Results are paginated with configurable page size (max 100).
 
     Search uses Swedish stemming so "stöld" matches "stölder" etc.
     """
-    # Validate H3 cell
-    if not is_valid_h3_cell(h3_cell):
+    # Validate: exactly one of h3_cell or location_name required
+    if h3_cell and location_name:
+        raise HTTPException(status_code=400, detail="Cannot specify both h3_cell and location_name")
+    if not h3_cell and not location_name:
+        raise HTTPException(status_code=400, detail="Must specify either h3_cell or location_name")
+
+    # Validate H3 cell format if provided
+    if h3_cell and not is_valid_h3_cell(h3_cell):
         raise HTTPException(status_code=400, detail=f"Invalid H3 cell ID: {h3_cell}")
 
     db = get_db(request)
@@ -194,6 +206,7 @@ async def get_events(
         result = query_events(
             conn=db,
             h3_cell=h3_cell,
+            location_name=location_name,
             start_date=start_date,
             end_date=end_date,
             categories=categories,

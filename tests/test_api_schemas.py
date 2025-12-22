@@ -184,10 +184,12 @@ class TestAPIStubEndpoints:
         data = response.json()
         assert data["detail"] == "Database not initialized"
 
-    def test_events_endpoint_requires_h3_cell(self, client: TestClient) -> None:
-        """Events endpoint should require h3_cell parameter."""
+    def test_events_endpoint_requires_location_param(self, client: TestClient) -> None:
+        """Events endpoint requires either h3_cell or location_name parameter."""
         response = client.get("/api/events")
-        assert response.status_code == 422  # Validation error
+        assert response.status_code == 400  # Must specify h3_cell or location_name
+        assert "h3_cell" in response.json()["detail"]
+        assert "location_name" in response.json()["detail"]
 
     def test_events_endpoint_per_page_max_100(self, client: TestClient) -> None:
         """Events endpoint should cap per_page at 100."""

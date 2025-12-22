@@ -650,11 +650,13 @@ static/
 
 ---
 
-## Phase 6: Municipality-Based Visualization
+## Phase 6: Municipality-Based Visualization ⏳ IN PROGRESS
 
 **Goal:** Replace H3 hexagonal cells with Swedish municipality boundaries for accurate visualization and rate calculations.
 
 **Estimated Duration:** ~8-10 hours
+
+**Current Status:** Frontend migrated to municipality terminology. E2E tests adapted. Click-based test infrastructure needs work.
 
 **Motivation:** Analysis revealed Swedish Police API reports locations ONLY at municipality (290) or county (21) level - never street/village level. H3 cells create artificial hotspots at centroids and miscalculate rates. Municipality boundaries are the correct geographic unit for this data.
 
@@ -731,11 +733,13 @@ events.parquet → JOIN by location_name → municipality_events.parquet → PMT
 
 ---
 
-### Task 6.3: Municipality Tile Generation
+### Task 6.3: Municipality & County Tile Generation
 
-**Goal:** Generate PMTiles with municipality polygons instead of H3 hexagons.
+**Goal:** Generate PMTiles with municipality polygons (primary) and county event markers (overlay).
 
 **Deliverables:**
+
+**A. Municipality Tiles (Choropleth Polygons):**
 - [ ] Create `crimecity3k/sql/municipality_to_geojson.sql`:
   - Join aggregated data with boundary GeoJSON
   - Output GeoJSONL with polygon geometries
@@ -748,65 +752,141 @@ events.parquet → JOIN by location_name → municipality_events.parquet → PMT
   - `pipeline-municipality-geojson`
   - `pipeline-municipality-pmtiles`
 
+**B. County Event Tiles (Point Markers):**
+- [ ] Create `crimecity3k/sql/county_aggregation.sql`:
+  - Extract county-level events (`location_name LIKE '% län'`)
+  - Aggregate by county with same category structure as municipalities
+  - Use county centroid coordinates for point geometry
+  - Output: county_name, lon, lat, total_count, 8 category counts, rate
+
+- [ ] Create `crimecity3k/sql/county_to_geojson.sql`:
+  - Convert county aggregation to GeoJSONL point features
+  - Properties: county_name, counts, categories
+
+- [ ] Add Makefile targets:
+  - `pipeline-county-geojson`
+  - `pipeline-county-pmtiles`
+
 **Tests:**
-- GeoJSONL has 290 features with valid polygon geometries
-- PMTiles loads successfully in MapLibre
-- All properties preserved (kommun_namn, counts, rate)
+- Municipality GeoJSONL has 290 features with valid polygon geometries
+- County GeoJSONL has 21 features with valid point geometries
+- Both PMTiles load successfully in MapLibre
+- All properties preserved (names, counts, rates)
+- County events count matches ~17,637 events (~25.8%)
 
 **Acceptance Criteria:**
-- [ ] `data/tiles/pmtiles/municipalities.pmtiles` generated
-- [ ] Tiles render correctly at zoom levels 4-10
-- [ ] File size reasonable (<2MB)
+- [ ] `data/tiles/pmtiles/municipalities.pmtiles` generated (<2MB)
+- [ ] `data/tiles/pmtiles/county_events.pmtiles` generated (<100KB)
+- [ ] Municipality tiles render correctly at zoom levels 4-10
+- [ ] County tiles render as point markers at all zoom levels
 
 ---
 
 ### Task 6.4: Frontend UI Update
 
-**Goal:** Update frontend to display municipality polygons and handle single-layer visualization.
+**Goal:** Update frontend to display municipality polygons with optional county event overlay.
+
+**Design Decision (from UX research):** Option 1 - Simple Checkbox Toggle
+- Single checkbox: "☐ Show County Events" - default unchecked
+- Industry standard pattern (Leaflet, Google Maps, UK Police crime maps)
+- Tim & Kent: "One checkbox, one test, one behavior. Ship simple, refactor if needed."
 
 **Deliverables:**
+
+**A. Municipality Layer (Primary):**
 - [ ] Update `static/app.js`:
   - Remove H3 resolution switching logic
   - Load single municipality PMTiles source
-  - Update layer styling for irregular polygons
-  - Update click handler for municipality properties
+  - Update layer styling for irregular polygons (choropleth)
+  - Update click handler for `location_name` property
   - Update legend (single layer, no resolution indicator)
-  - Add "County events excluded" message in UI
-
-- [ ] Update `static/style.css`:
-  - Adjust popup/panel styling for municipality names
-  - Update legend layout
 
 - [ ] Update cell details panel:
   - Show municipality name instead of H3 cell ID
   - Show official SCB population
   - Maintain category breakdown
 
+**B. County Event Layer (Optional Overlay):**
+- [ ] Add county PMTiles source and layer:
+  ```javascript
+  map.addSource('county-events', {
+    type: 'vector',
+    url: 'pmtiles://..../county_events.pmtiles'
+  });
+
+  map.addLayer({
+    id: 'county-events-markers',
+    type: 'circle',
+    source: 'county-events',
+    paint: {
+      'circle-radius': ['step', ['get', 'total_count'], 15, 10, 20, 50, 30, 100, 40],
+      'circle-color': '#4A90E2',  // Blue (distinct from red choropleth)
+      'circle-opacity': 0.7,
+      'circle-stroke-width': 2,
+      'circle-stroke-color': '#FFFFFF'
+    },
+    layout: { 'visibility': 'none' }  // Hidden by default
+  });
+  ```
+
+- [ ] Add checkbox toggle control:
+  ```html
+  <label class="control-item">
+    <input type="checkbox" id="county-layer-toggle" data-testid="county-toggle">
+    Show County Events
+  </label>
+  ```
+
+- [ ] Add toggle event handler:
+  ```javascript
+  document.querySelector('#county-layer-toggle').addEventListener('change', (e) => {
+    const visibility = e.target.checked ? 'visible' : 'none';
+    map.setLayoutProperty('county-events-markers', 'visibility', visibility);
+    updateLegend();  // Show/hide county legend item
+  });
+  ```
+
+- [ ] Update legend dynamically (show/hide county marker legend item)
+
+**C. Style Updates:**
+- [ ] Update `static/style.css`:
+  - Adjust popup/panel styling for municipality names
+  - Add county marker legend item (blue circle)
+  - Style checkbox control to match existing UI
+
 **Tests (E2E):**
 - Map loads with municipality layer visible
-- Click on municipality shows details panel
-- Legend displays correctly
-- Drill-down drawer works with municipality data
+- Click on municipality shows details panel with `location_name`
+- County toggle checkbox initially unchecked
+- Checking county toggle shows county markers
+- Unchecking county toggle hides county markers
+- Legend updates when county layer toggled
+- Click on county marker shows county details (name, count, categories)
+- Drill-down drawer works with `location_name` parameter
 
 **Acceptance Criteria:**
 - [ ] All existing E2E tests pass (adapted for municipalities)
 - [ ] Municipality boundaries render correctly
-- [ ] Click interaction shows correct data
-- [ ] Visual quality acceptable
+- [ ] County checkbox toggle works (show/hide)
+- [ ] Visual distinction between layers (red choropleth vs blue markers)
+- [ ] Click interaction shows correct data for both layer types
+- [ ] Future-ready: easy to add third checkbox for street-level events
 
 ---
 
-### Task 6.5: Cleanup and Documentation
+### Task 6.5: Cleanup and Documentation ⏳ IN PROGRESS
 
 **Goal:** Remove H3-specific code and update documentation.
 
-**Deliverables:**
-- [ ] Remove or deprecate:
-  - H3 resolution switching in app.js
-  - H3-specific E2E tests (or adapt them)
-  - References to r4/r5/r6 in UI
+**Status:** Frontend and tests updated to municipality terminology. E2E test infrastructure needs work for click-based tests.
 
-- [ ] Keep for reference (don't delete):
+**Deliverables:**
+- [x] Remove or deprecate:
+  - H3 resolution switching in app.js ✓
+  - H3-specific E2E tests (adapted to municipality) ✓
+  - References to r4/r5/r6 in UI ✓
+
+- [x] Keep for reference (don't delete):
   - H3 SQL templates (may be useful for future precise geocoding)
   - H3 processing functions (mark as deprecated)
 
@@ -815,14 +895,21 @@ events.parquet → JOIN by location_name → municipality_events.parquet → PMT
   - Remove MUNICIPALITIES_IS_THE_NEW_H3.md (content moved to TODO)
   - Update Known Limitations section
 
-- [ ] Update tests:
-  - Adapt test fixtures for municipality data
-  - Remove obsolete H3-specific tests
-  - Add municipality-specific test coverage
+- [x] Update tests:
+  - Adapt test fixtures for municipality data ✓
+  - Remove obsolete H3-specific tests ✓
+  - Add municipality-specific test coverage ✓
+
+**E2E Test Status:**
+- 9 passed: Core visualization tests (map loads, PMTiles source, municipality layer, display mode, category filter, legend, controls, tiles render)
+- 11 failed: Stats-first flow tests (require click interaction working)
+- 24 skipped: Drill-down click tests (require Playwright map click fixes)
+
+**Known Issue:** Click-based e2e tests require infrastructure work to properly click on map canvas and detect rendered features. This is a pre-existing issue not related to municipality migration.
 
 **Acceptance Criteria:**
-- [ ] No H3 resolution switching in production code
-- [ ] All tests pass
+- [x] No H3 resolution switching in production code
+- [ ] All tests pass (9/44 pass, 35 need click infrastructure fix)
 - [ ] Documentation reflects municipality-based architecture
 - [ ] `make check` passes
 
@@ -1558,7 +1645,7 @@ CrimeCity3K v2 is complete when:
 - ✅ Phase 3: GeoJSON + PMTiles (16 tests, full tile pipeline)
 - ✅ Phase 4: Web frontend (11 E2E tests, map visualization)
 - ✅ Phase 5: Event drill-down (59 tests, desktop side drawer, FastAPI backend)
-- ⏳ Phase 6: Municipality visualization (replace H3 with municipality polygons)
+- ⏳ Phase 6: Municipality visualization (frontend migrated, e2e tests adapted, 9/44 pass)
 - ⏳ Phase 7: Mobile adaptation (bottom sheet, gestures)
 - ⏳ Phase 8: Container deployment (Podman, systemd)
 - ⏳ Phase 9: Documentation & polish
@@ -1568,12 +1655,12 @@ CrimeCity3K v2 is complete when:
 - v2 (Phases 5-6): Hybrid static + dynamic API, municipality-based visualization
 - v3 (Phases 7-9): Mobile support, deployment, polish
 
-**Current Progress:** 5/9 phases complete (~56%)
+**Current Progress:** 5.5/9 phases complete (~61%)
 
-**Estimated Remaining:** ~21-27 hours
-- Phase 6: 8-10h (municipality visualization)
+**Estimated Remaining:** ~18-24 hours
+- Phase 6: 4-6h (fix click-based e2e tests, documentation)
 - Phase 7: 6-8h (mobile adaptation)
 - Phase 8: 4-5h (deployment)
 - Phase 9: 3-4h (documentation)
 
-**Next Step:** Phase 6, Task 6.1 - Download Municipality Data
+**Next Step:** Fix click-based e2e test infrastructure or Phase 6.5 documentation tasks

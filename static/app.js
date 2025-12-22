@@ -15,45 +15,49 @@ const CONFIG = {
     center: [16.5, 62.5],
     initialZoom: 5,
 
-    // H3 resolution to zoom level mapping
-    // Note: r6 removed due to centroid artifacts - all city events report at
-    // single coordinates, causing rate inflation up to 4.3x at fine resolutions.
-    // r5 (~250km² cells) provides adequate detail while capturing metro populations.
-    // R4 at zoom 3-5, R5 at zoom 6+ (switched earlier to avoid crowded R5 at low zoom)
-    zoomToResolution: {
-        3: 4,
-        4: 4,
-        5: 4,
-        6: 5,
-        7: 5,
-        8: 5,
-        9: 5,
-        10: 5,
-        11: 5,
-        12: 5
-    },
-
-    // Available resolutions (r6 excluded - see note above)
-    resolutions: [4, 5],
-
     // PMTiles path (relative to server root)
     tilesPath: '/data/tiles/pmtiles',
 
     // Tile version for cache busting (bump when tile schema changes)
-    tileVersion: 2,
+    tileVersion: 3,
 
     // Color scale for absolute counts (red sequential)
-    // Buckets: 0-10, 10-50, 50-200, 200-500, 500-1500, 1500+
+    // Category-specific stops based on actual data distributions
     absoluteColors: {
-        stops: [0, 10, 50, 200, 500, 1500],
-        colors: ['#fee5d9', '#fcae91', '#fb6a4a', '#de2d26', '#a50f15', '#67000d']
+        colors: ['#fee5d9', '#fcae91', '#fb6a4a', '#de2d26', '#a50f15', '#67000d'],
+        stops: {
+            all:          [0, 10, 50, 200, 500, 1500],
+            traffic:      [0, 5, 20, 80, 200, 500],
+            property:     [0, 5, 15, 60, 150, 400],
+            violence:     [0, 2, 8, 30, 80, 200],
+            narcotics:    [0, 2, 8, 30, 80, 200],
+            fraud:        [0, 1, 5, 15, 40, 100],
+            public_order: [0, 2, 10, 40, 100, 300],
+            weapons:      [0, 1, 4, 15, 40, 100],
+            other:        [0, 10, 40, 150, 400, 1000]
+        }
     },
 
     // Color scale for normalized rates (per 10,000)
+    // Category-specific stops based on actual data distributions
     normalizedColors: {
-        stops: [0, 50, 200, 500, 2000],
-        colors: ['#fee5d9', '#fcae91', '#fb6a4a', '#de2d26', '#a50f15']
+        colors: ['#fee5d9', '#fcae91', '#fb6a4a', '#de2d26', '#a50f15', '#67000d'],
+        stops: {
+            all:          [0, 25, 50, 100, 150, 250],
+            traffic:      [0, 5, 10, 15, 25, 50],
+            property:     [0, 2, 5, 10, 15, 35],
+            violence:     [0, 2, 4, 6, 10, 15],
+            narcotics:    [0, 1, 2, 5, 10, 15],
+            fraud:        [0, 0.5, 1, 2, 3, 5],
+            public_order: [0, 3, 5, 8, 12, 25],
+            weapons:      [0, 0.5, 1, 2, 4, 8],
+            other:        [0, 15, 30, 50, 100, 200]
+        }
     },
+
+    // Minimum population for reliable per-capita rates in normalized mode
+    // Municipalities below this threshold are shown in gray
+    minPopulationForNormalized: 5000,
 
     // Category display names
     categories: {
@@ -69,17 +73,15 @@ const CONFIG = {
 };
 
 // State
-let currentResolution = null;
 let currentFilter = 'all';
 let displayMode = 'absolute';
-const loadedSources = {};
+let sourceLoaded = false;
 
 // Stats-first UI state
-let currentCellData = null;  // { h3_cell, properties, locationName }
+let currentCellData = null;  // { locationName, properties }
 let viewState = 'none';      // 'none' | 'stats' | 'drawer'
 
 // Make state accessible for E2E tests
-window.currentResolution = null;
 window.displayMode = 'absolute';
 
 // Initialize map
@@ -111,29 +113,55 @@ const map = new maplibregl.Map({
 window.map = map;
 
 /**
- * Get the color expression for the current display mode and filter.
+ * Get the value expression for color interpolation.
+ * In absolute mode: use count field directly
+ * In normalized mode: compute (count * 10000) / population
  */
-function getColorExpression() {
-    const colors = displayMode === 'absolute'
-        ? CONFIG.absoluteColors
-        : CONFIG.normalizedColors;
+function getValueExpression() {
+    const countField = getCountField();
 
-    const field = displayMode === 'absolute'
-        ? getCountField()
-        : 'rate_per_10000';
-
-    // Build expression dynamically to handle different numbers of stops
-    const expression = [
-        'interpolate',
-        ['linear'],
-        ['coalesce', ['get', field], 0]
-    ];
-
-    for (let i = 0; i < colors.stops.length; i++) {
-        expression.push(colors.stops[i], colors.colors[i]);
+    if (displayMode === 'absolute') {
+        return ['coalesce', ['get', countField], 0];
     }
 
-    return expression;
+    // Normalized mode: compute rate per 10,000 dynamically
+    // This correctly handles category filters by using the filtered count
+    return [
+        '/',
+        ['*', ['coalesce', ['get', countField], 0], 10000],
+        ['max', ['coalesce', ['get', 'population'], 1], 1]  // Avoid division by zero
+    ];
+}
+
+/**
+ * Get the color expression for the current display mode and filter.
+ * In normalized mode, municipalities below population threshold are shown in gray.
+ */
+function getColorExpression() {
+    const colorConfig = getColorConfig();
+
+    // Build base interpolate expression
+    const interpolateExpr = [
+        'interpolate',
+        ['linear'],
+        getValueExpression()
+    ];
+
+    for (let i = 0; i < colorConfig.stops.length; i++) {
+        interpolateExpr.push(colorConfig.stops[i], colorConfig.colors[i]);
+    }
+
+    // In normalized mode, gray out small populations (rates are unreliable)
+    if (displayMode === 'normalized') {
+        return [
+            'case',
+            ['<', ['coalesce', ['get', 'population'], 0], CONFIG.minPopulationForNormalized],
+            '#e0e0e0',  // Gray for small populations
+            interpolateExpr
+        ];
+    }
+
+    return interpolateExpr;
 }
 
 /**
@@ -144,6 +172,48 @@ function getCountField() {
         return 'total_count';
     }
     return `${currentFilter}_count`;
+}
+
+/**
+ * Compute rate per 10,000 for the current category filter.
+ * JavaScript equivalent of getValueExpression() for normalized mode.
+ * @param {object} props - Feature properties with count and population fields
+ * @returns {number} - Rate per 10,000 residents
+ */
+function getCurrentRate(props) {
+    const countField = getCountField();
+    const count = props[countField] || 0;
+    const population = Math.max(props.population || 1, 1);
+    return (count * 10000) / population;
+}
+
+/**
+ * Compute rate per 10,000 for a specific category.
+ * @param {object} props - Feature properties
+ * @param {string} categoryKey - Category key (e.g., 'fraud', 'violence')
+ * @returns {number} - Rate per 10,000 residents
+ */
+function getCategoryRate(props, categoryKey) {
+    const count = props[`${categoryKey}_count`] || 0;
+    const population = Math.max(props.population || 1, 1);
+    return (count * 10000) / population;
+}
+
+/**
+ * Get color configuration for current display mode and category.
+ * Single source of truth for both map paint and legend.
+ */
+function getColorConfig() {
+    const category = currentFilter;
+    const colorConfig = displayMode === 'absolute'
+        ? CONFIG.absoluteColors
+        : CONFIG.normalizedColors;
+
+    const stops = colorConfig.stops[category] || colorConfig.stops.all;
+    return {
+        stops: stops,
+        colors: colorConfig.colors
+    };
 }
 
 /**
@@ -158,74 +228,42 @@ function getFilterExpression() {
 }
 
 /**
- * Load all PMTiles sources.
+ * Load municipality PMTiles source.
  */
-function loadAllSources() {
-    let loadCount = 0;
+function loadMunicipalitySource() {
+    const sourceId = 'municipality-tiles';
+    const url = `pmtiles://${CONFIG.tilesPath}/municipalities.pmtiles?v=${CONFIG.tileVersion}`;
 
-    for (const res of CONFIG.resolutions) {
-        const sourceId = `h3-tiles-r${res}`;
-        const url = `pmtiles://${CONFIG.tilesPath}/h3_r${res}.pmtiles?v=${CONFIG.tileVersion}`;
-
-        try {
-            map.addSource(sourceId, {
-                type: 'vector',
-                url: url
-            });
-            loadedSources[res] = true;
-            loadCount++;
-        } catch (error) {
-            console.error(`Failed to load PMTiles for resolution ${res}:`, error);
-            loadedSources[res] = false;
-        }
+    try {
+        map.addSource(sourceId, {
+            type: 'vector',
+            url: url
+        });
+        sourceLoaded = true;
+        return true;
+    } catch (error) {
+        console.error('Failed to load municipality PMTiles:', error);
+        sourceLoaded = false;
+        return false;
     }
-
-    return loadCount > 0;
 }
 
 /**
- * Get best available resolution for a zoom level.
+ * Add municipalities layer.
  */
-function getBestResolutionForZoom(zoom) {
-    const targetRes = CONFIG.zoomToResolution[Math.floor(zoom)] || 4;
-
-    if (loadedSources[targetRes]) {
-        return targetRes;
-    }
-
-    // Fallback to nearest available
-    let bestRes = null;
-    let minDiff = Infinity;
-
-    for (const res of CONFIG.resolutions) {
-        if (loadedSources[res]) {
-            const diff = Math.abs(res - targetRes);
-            if (diff < minDiff) {
-                minDiff = diff;
-                bestRes = res;
-            }
-        }
-    }
-
-    return bestRes;
-}
-
-/**
- * Add H3 cells layer for a resolution.
- */
-function addH3Layer(resolution) {
-    const layerId = 'h3-cells';
-    const sourceId = `h3-tiles-r${resolution}`;
+function addMunicipalityLayer() {
+    const layerId = 'municipalities';
+    const sourceId = 'municipality-tiles';
 
     const layerConfig = {
         id: layerId,
         type: 'fill',
         source: sourceId,
-        'source-layer': 'h3_cells',
+        'source-layer': 'municipalities',
         paint: {
             'fill-color': getColorExpression(),
             'fill-opacity': 0.7,
-            'fill-outline-color': 'rgba(0, 0, 0, 0.1)'
+            'fill-outline-color': 'rgba(0, 0, 0, 0.3)'
         }
     };
 
@@ -235,58 +273,34 @@ function addH3Layer(resolution) {
     }
 
     map.addLayer(layerConfig);
-}
 
-/**
- * Switch to a new resolution.
- */
-function switchToResolution(newRes) {
-    if (currentResolution === newRes) {
-        return;
-    }
-
-    // Remove existing layer
-    if (map.getLayer('h3-cells')) {
-        map.removeLayer('h3-cells');
-    }
-
-    // Add new layer
-    addH3Layer(newRes);
-
-    // Update state
-    currentResolution = newRes;
-    window.currentResolution = newRes;
-
-    // Update UI
-    document.getElementById('current-resolution').textContent = newRes;
-
-    // Re-register event handlers
+    // Register event handlers once
     registerLayerEventHandlers();
 }
 
 /**
- * Register mouse/click handlers for the H3 layer.
+ * Register mouse/click handlers for the municipalities layer.
  */
 function registerLayerEventHandlers() {
     // Cursor change on hover
-    map.on('mouseenter', 'h3-cells', () => {
+    map.on('mouseenter', 'municipalities', () => {
         map.getCanvas().style.cursor = 'pointer';
     });
 
-    map.on('mouseleave', 'h3-cells', () => {
+    map.on('mouseleave', 'municipalities', () => {
         map.getCanvas().style.cursor = '';
     });
 
     // Click to show details
-    map.on('click', 'h3-cells', (e) => {
+    map.on('click', 'municipalities', (e) => {
         if (e.features.length > 0) {
-            showCellDetails(e.features[0].properties);
+            showMunicipalityDetails(e.features[0].properties);
         }
     });
 
     // Click outside (on map, not on features) to hide details
     map.on('click', (e) => {
-        const features = map.queryRenderedFeatures(e.point, { layers: ['h3-cells'] });
+        const features = map.queryRenderedFeatures(e.point, { layers: ['municipalities'] });
         if (features.length === 0) {
             // Only close if not clicking inside the drawer
             const drawer = document.getElementById('drill-down-drawer');
@@ -298,93 +312,85 @@ function registerLayerEventHandlers() {
 }
 
 /**
- * Show cell details panel with stats and Search Events button.
+ * Show municipality details panel with stats and Search Events button.
  * Does NOT auto-open drill-down drawer (stats-first flow).
  */
-function showCellDetails(props) {
-    const h3Cell = props.h3_cell;
-    // Use dominant_location from tile data (most common location in this cell)
-    const locationName = props.dominant_location || 'Unknown location';
+function showMunicipalityDetails(props) {
+    // Use kommun_namn from municipality tiles
+    const locationName = props.kommun_namn || 'Unknown municipality';
 
     // Store current cell data for later use
     currentCellData = {
-        h3_cell: h3Cell,
-        properties: props,
-        locationName: locationName
+        locationName: locationName,
+        properties: props
     };
 
     // If drawer is already open, update it directly (Option B behavior)
     if (viewState === 'drawer' && DrillDown && DrillDown.isOpen()) {
-        DrillDown.open(h3Cell, locationName, props);
+        DrillDown.open(locationName, props);
         return;
     }
 
-    // Update stats panel content
     const content = document.getElementById('details-content');
     const panel = document.getElementById('cell-details');
 
-    // Set title to location name
     document.getElementById('details-title').textContent = locationName;
 
-    // Basic stats
+    const population = props.population || 0;
+    const isSmallPopulation = population < CONFIG.minPopulationForNormalized;
+
     let html = '<div class="detail-row">';
-    html += '<span class="detail-label">Total Events</span>';
-    html += `<span class="detail-value">${props.total_count?.toLocaleString() || 0}</span>`;
+    html += '<span class="detail-label">Rate per 10k</span>';
+    html += `<span class="detail-value">${getCurrentRate(props).toFixed(1)}</span>`;
     html += '</div>';
 
-    html += '<div class="detail-row">';
-    html += '<span class="detail-label">Rate per 10k</span>';
-    html += `<span class="detail-value">${props.rate_per_10000?.toFixed(1) || '0.0'}</span>`;
-    html += '</div>';
+    // Warn about unreliable rates in normalized mode for small populations
+    if (displayMode === 'normalized' && isSmallPopulation) {
+        html += '<div class="rate-warning">';
+        html += 'Rate may be unreliable due to small population';
+        html += '</div>';
+    }
 
     html += '<div class="detail-row">';
     html += '<span class="detail-label">Population</span>';
-    html += `<span class="detail-value">${Math.round(props.population || 0).toLocaleString()}</span>`;
+    html += `<span class="detail-value">${Math.round(population).toLocaleString()}</span>`;
     html += '</div>';
 
-    // Category breakdown
     html += '<div class="category-breakdown">';
     html += '<h5>By Category</h5>';
+    html += '<table class="category-table">';
+    html += '<thead><tr>';
+    html += '<th scope="col">Category</th>';
+    html += '<th scope="col" class="num">Count</th>';
+    html += '<th scope="col" class="num">per 10k</th>';
+    html += '</tr></thead>';
+    html += '<tbody>';
 
+    let totalCount = 0;
     for (const [key, name] of Object.entries(CONFIG.categories)) {
         const count = props[`${key}_count`] || 0;
         if (count > 0) {
-            html += '<div class="category-bar">';
-            html += `<span class="category-name">${name}</span>`;
-            html += `<span class="category-count">${count.toLocaleString()}</span>`;
-            html += '</div>';
+            totalCount += count;
+            const rate = getCategoryRate(props, key);
+            html += '<tr>';
+            html += `<td>${name}</td>`;
+            html += `<td class="num">${count.toLocaleString()}</td>`;
+            html += `<td class="num">${rate.toFixed(1)}</td>`;
+            html += '</tr>';
         }
     }
+    html += '</tbody>';
+
+    const totalRate = getCurrentRate(props);
+    html += '<tfoot><tr class="total-row">';
+    html += '<td>Total</td>';
+    html += `<td class="num">${totalCount.toLocaleString()}</td>`;
+    html += `<td class="num">${totalRate.toFixed(1)}</td>`;
+    html += '</tr></tfoot>';
+
+    html += '</table>';
     html += '</div>';
 
-    // Top event types
-    let typeCounts = props.type_counts;
-    if (typeCounts) {
-        // Parse if string (PMTiles may serialize arrays as strings)
-        if (typeof typeCounts === 'string') {
-            try {
-                typeCounts = JSON.parse(typeCounts);
-            } catch {
-                typeCounts = [];
-            }
-        }
-
-        if (Array.isArray(typeCounts) && typeCounts.length > 0) {
-            html += '<div class="top-types">';
-            html += '<h5>Top Event Types</h5>';
-
-            const topTypes = typeCounts.slice(0, 8);
-            for (const item of topTypes) {
-                html += '<div class="type-item">';
-                html += `<span class="type-name">${item.type}</span>`;
-                html += `<span class="type-count">${item.count}</span>`;
-                html += '</div>';
-            }
-            html += '</div>';
-        }
-    }
-
-    // Search Events button
     html += '<div class="search-events-action">';
     html += '<button id="search-events-button" data-testid="search-events-button" class="search-events-button">';
     html += 'Search Events →';
@@ -395,7 +401,6 @@ function showCellDetails(props) {
     panel.classList.add('visible');
     viewState = 'stats';
 
-    // Bind click handler for Search Events button
     document.getElementById('search-events-button').addEventListener('click', openDrawerFromStats);
 }
 
@@ -408,9 +413,8 @@ function openDrawerFromStats() {
     // Hide stats panel
     document.getElementById('cell-details').classList.remove('visible');
 
-    // Open drawer
+    // Open drawer with location name
     DrillDown.open(
-        currentCellData.h3_cell,
         currentCellData.locationName,
         currentCellData.properties
     );
@@ -432,29 +436,35 @@ function hideCellDetails() {
 }
 
 /**
- * Update legend based on current display mode.
+ * Update legend based on current display mode and category.
  */
 function updateLegend() {
     const title = document.getElementById('legend-title');
     const items = document.getElementById('legend-items');
-
-    const colors = displayMode === 'absolute'
-        ? CONFIG.absoluteColors
-        : CONFIG.normalizedColors;
+    const colorConfig = getColorConfig();
 
     title.textContent = displayMode === 'absolute'
         ? 'Event Count'
         : 'Rate per 10,000';
 
     let html = '';
-    for (let i = 0; i < colors.stops.length; i++) {
-        const label = i === colors.stops.length - 1
-            ? `${colors.stops[i]}+`
-            : `${colors.stops[i]}-${colors.stops[i + 1]}`;
+    for (let i = 0; i < colorConfig.stops.length; i++) {
+        const label = i === colorConfig.stops.length - 1
+            ? `${colorConfig.stops[i]}+`
+            : `${colorConfig.stops[i]}-${colorConfig.stops[i + 1]}`;
 
         html += '<div class="legend-item">';
-        html += `<div class="legend-color" style="background: ${colors.colors[i]};"></div>`;
+        html += `<div class="legend-color" style="background: ${colorConfig.colors[i]};"></div>`;
         html += `<span class="legend-label">${label}</span>`;
+        html += '</div>';
+    }
+
+    // In normalized mode, add footnote about grayed-out small populations
+    if (displayMode === 'normalized') {
+        const threshold = (CONFIG.minPopulationForNormalized / 1000).toFixed(0);
+        html += '<div class="legend-footnote">';
+        html += '<div class="legend-color" style="background: #e0e0e0;"></div>';
+        html += `<span class="legend-label">Pop. &lt; ${threshold}k</span>`;
         html += '</div>';
     }
 
@@ -465,8 +475,8 @@ function updateLegend() {
  * Update layer paint based on current settings.
  */
 function updateLayerPaint() {
-    if (map.getLayer('h3-cells')) {
-        map.setPaintProperty('h3-cells', 'fill-color', getColorExpression());
+    if (map.getLayer('municipalities')) {
+        map.setPaintProperty('municipalities', 'fill-color', getColorExpression());
     }
 }
 
@@ -474,13 +484,13 @@ function updateLayerPaint() {
  * Update layer filter based on current category.
  */
 function updateLayerFilter() {
-    if (!map.getLayer('h3-cells')) return;
+    if (!map.getLayer('municipalities')) return;
 
     const filterExpr = getFilterExpression();
     if (filterExpr) {
-        map.setFilter('h3-cells', filterExpr);
+        map.setFilter('municipalities', filterExpr);
     } else {
-        map.setFilter('h3-cells', null);
+        map.setFilter('municipalities', null);
     }
 
     // Also update paint since we might be showing different count field
@@ -560,6 +570,7 @@ document.getElementById('display-mode-toggle').addEventListener('change', (e) =>
 document.getElementById('category-filter').addEventListener('change', (e) => {
     currentFilter = e.target.value;
     updateLayerFilter();
+    updateLegend();  // Legend stops change per category in normalized mode
 });
 
 document.getElementById('close-details').addEventListener('click', hideCellDetails);
@@ -655,9 +666,9 @@ document.getElementById('shortcuts-close').addEventListener('click', hideShortcu
 
 const DrillDown = {
     // State
-    currentH3Cell: null,
-    cellProps: null,         // Cell properties for header stats display
-    cellTotalEvents: 0,      // Total events in cell (for "X of Y" display)
+    currentLocationName: null,
+    cellProps: null,         // Municipality properties for header stats display
+    cellTotalEvents: 0,      // Total events in municipality (for "X of Y" display)
     currentPage: 1,
     perPage: 10,
     totalEvents: 0,          // Filtered/current total
@@ -752,16 +763,15 @@ const DrillDown = {
     },
 
     /**
-     * Open drawer for a specific H3 cell.
-     * @param {string} h3Cell - The H3 cell ID
-     * @param {string} locationName - Display name for the location
-     * @param {object} cellProps - Cell properties (total_count, rate_per_10000, etc.)
+     * Open drawer for a specific municipality.
+     * @param {string} locationName - Municipality name for display and API queries
+     * @param {object} cellProps - Municipality properties (total_count, rate_per_10000, etc.)
      */
-    open(h3Cell, locationName = 'Events', cellProps = null) {
-        // Only reset filters when opening fresh (not when switching cells)
+    open(locationName, cellProps = null) {
+        // Only reset filters when opening fresh (not when switching)
         const isAlreadyOpen = this.isOpen();
 
-        this.currentH3Cell = h3Cell;
+        this.currentLocationName = locationName;
         this.cellProps = cellProps;
         this.cellTotalEvents = cellProps?.total_count || 0;
         this.currentPage = 1;
@@ -797,7 +807,7 @@ const DrillDown = {
             viewState = 'stats';
         } else {
             // Full close
-            this.currentH3Cell = null;
+            this.currentLocationName = null;
             this.cellProps = null;
             viewState = 'none';
         }
@@ -987,7 +997,7 @@ const DrillDown = {
      * Fetch events from API.
      */
     async fetchEvents() {
-        if (!this.currentH3Cell) return;
+        if (!this.currentLocationName) return;
 
         // Cancel any in-flight request
         if (this.abortController) {
@@ -999,7 +1009,7 @@ const DrillDown = {
 
         try {
             const params = new URLSearchParams({
-                h3_cell: this.currentH3Cell,
+                location_name: this.currentLocationName,
                 page: this.currentPage,
                 per_page: this.perPage
             });
@@ -1059,7 +1069,7 @@ const DrillDown = {
         const statsEl = this.elements.statsSummary;
         if (!statsEl) return;
 
-        const rate = this.cellProps?.rate_per_10000?.toFixed(1) || '0.0';
+        const rate = this.cellProps ? getCurrentRate(this.cellProps).toFixed(1) : '0.0';
         const cellTotal = this.cellTotalEvents;
 
         // Check if any filters are active
@@ -1205,7 +1215,7 @@ const DrillDown = {
 
 // Expose for map integration and testing
 window.DrillDown = DrillDown;
-window.openDrillDown = (h3Cell, locationName) => DrillDown.open(h3Cell, locationName);
+window.openDrillDown = (locationName, props) => DrillDown.open(locationName, props);
 
 // Map load handler
 map.on('load', () => {
@@ -1216,26 +1226,15 @@ map.on('load', () => {
     initMobileInteractions();
     window.addEventListener('resize', initMobileInteractions);
 
-    // Load PMTiles sources
-    if (!loadAllSources()) {
-        console.error('Failed to load PMTiles');
+    // Load municipality PMTiles source
+    if (!loadMunicipalitySource()) {
+        console.error('Failed to load municipality PMTiles');
         return;
     }
 
     // Initialize legend
     updateLegend();
 
-    // Set initial resolution
-    const initialRes = getBestResolutionForZoom(map.getZoom());
-    if (initialRes) {
-        switchToResolution(initialRes);
-    }
-
-    // Handle zoom changes
-    map.on('zoomend', () => {
-        const targetRes = getBestResolutionForZoom(map.getZoom());
-        if (targetRes && targetRes !== currentResolution) {
-            switchToResolution(targetRes);
-        }
-    });
+    // Add municipality layer
+    addMunicipalityLayer();
 });

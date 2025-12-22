@@ -19,10 +19,11 @@ const CONFIG = {
     // Note: r6 removed due to centroid artifacts - all city events report at
     // single coordinates, causing rate inflation up to 4.3x at fine resolutions.
     // r5 (~250km² cells) provides adequate detail while capturing metro populations.
+    // R4 at zoom 3-5, R5 at zoom 6+ (switched earlier to avoid crowded R5 at low zoom)
     zoomToResolution: {
         3: 4,
         4: 4,
-        5: 5,
+        5: 4,
         6: 5,
         7: 5,
         8: 5,
@@ -42,9 +43,10 @@ const CONFIG = {
     tileVersion: 2,
 
     // Color scale for absolute counts (red sequential)
+    // Buckets: 0-10, 10-50, 50-200, 200-500, 500-1500, 1500+
     absoluteColors: {
-        stops: [0, 10, 50, 150, 500],
-        colors: ['#fee5d9', '#fcae91', '#fb6a4a', '#de2d26', '#a50f15']
+        stops: [0, 10, 50, 200, 500, 1500],
+        colors: ['#fee5d9', '#fcae91', '#fb6a4a', '#de2d26', '#a50f15', '#67000d']
     },
 
     // Color scale for normalized rates (per 10,000)
@@ -120,16 +122,18 @@ function getColorExpression() {
         ? getCountField()
         : 'rate_per_10000';
 
-    return [
+    // Build expression dynamically to handle different numbers of stops
+    const expression = [
         'interpolate',
         ['linear'],
-        ['coalesce', ['get', field], 0],
-        colors.stops[0], colors.colors[0],
-        colors.stops[1], colors.colors[1],
-        colors.stops[2], colors.colors[2],
-        colors.stops[3], colors.colors[3],
-        colors.stops[4], colors.colors[4]
+        ['coalesce', ['get', field], 0]
     ];
+
+    for (let i = 0; i < colors.stops.length; i++) {
+        expression.push(colors.stops[i], colors.colors[i]);
+    }
+
+    return expression;
 }
 
 /**

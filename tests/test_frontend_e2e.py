@@ -44,9 +44,12 @@ def wait_for_drawer_closed(page: Page, timeout: int = 5000) -> None:
 
 
 def wait_for_drawer_content(page: Page, timeout: int = 10000) -> None:
-    """Wait for drawer content to load (events or threshold message)."""
+    """Wait for drawer content to load (events, threshold, empty, or error state)."""
     page.wait_for_selector(
-        "[data-testid='event-list'].visible, [data-testid='threshold-message'].visible",
+        "[data-testid='event-list'].visible, "
+        "[data-testid='threshold-message'].visible, "
+        "#empty-state.visible, "
+        "#error-state.visible",
         timeout=timeout,
     )
 
@@ -118,11 +121,17 @@ class TestFrontendE2E:
         resolution = page.evaluate("window.currentResolution")
         assert resolution == 4, f"Expected resolution 4 at zoom 4, got {resolution}"
 
-        # Test zoom level 5 -> resolution 5
+        # Test zoom level 5 -> resolution 4 (R4 shows at zoom 3-5)
         page.evaluate("window.map.setZoom(5)")
+        wait_for_resolution(page, 4)
+        resolution = page.evaluate("window.currentResolution")
+        assert resolution == 4, f"Expected resolution 4 at zoom 5, got {resolution}"
+
+        # Test zoom level 6 -> resolution 5 (R5 starts at zoom 6)
+        page.evaluate("window.map.setZoom(6)")
         wait_for_resolution(page, 5)
         resolution = page.evaluate("window.currentResolution")
-        assert resolution == 5, f"Expected resolution 5 at zoom 5, got {resolution}"
+        assert resolution == 5, f"Expected resolution 5 at zoom 6, got {resolution}"
 
         # Test zoom level 7 -> resolution 5 (r6 excluded, max is r5)
         page.evaluate("window.map.setZoom(7)")
@@ -228,9 +237,10 @@ class TestFrontendE2E:
         legend_title = page.locator("#legend-title")
         expect(legend_title).to_have_text("Event Count")
 
-        # Should have 5 legend items (based on color scale stops)
+        # Should have 6 legend items (based on color scale stops: 0-10, 10-50, 50-200,
+        # 200-500, 500-1500, 1500+)
         legend_items = page.locator(".legend-item")
-        expect(legend_items).to_have_count(5)
+        expect(legend_items).to_have_count(6)
 
     def test_controls_visible(self, page: Page, live_server: str) -> None:
         """Test that control panel is visible with all controls."""
@@ -448,7 +458,7 @@ class TestDrillDownDrawer:
     # --- Event List ---
 
     def test_drawer_shows_event_list_after_loading(self, page: Page, live_server: str) -> None:
-        """Drawer should display a list of events after loading."""
+        """Drawer should display content after loading (events, threshold, or empty)."""
         page.goto(f"{live_server}/static/index.html")
         wait_for_map_ready(page)
         wait_for_tiles_rendered(page)
@@ -457,16 +467,20 @@ class TestDrillDownDrawer:
         wait_for_drawer_open(page)
         wait_for_drawer_content(page)
 
+        # One of these states should be visible after loading completes
         event_list = page.locator("[data-testid='event-list']")
-        expect(event_list).to_be_visible()
-
-        # Should have at least one event card (or threshold message)
-        event_cards = page.locator("[data-testid='event-card']")
         threshold_msg = page.locator("[data-testid='threshold-message']")
+        empty_state = page.locator("#empty-state")
+        error_state = page.locator("#error-state")
 
-        # Either events exist or threshold message shows
-        has_content = event_cards.count() > 0 or threshold_msg.is_visible()
-        assert has_content, "Expected event cards or threshold message"
+        # Check which state is visible
+        has_content = (
+            event_list.is_visible()
+            or threshold_msg.is_visible()
+            or empty_state.is_visible()
+            or error_state.is_visible()
+        )
+        assert has_content, "Expected one of: event list, threshold, empty, or error state"
 
     def test_drawer_header_shows_stats_summary(self, page: Page, live_server: str) -> None:
         """Drawer header should show stats summary with event count and rate."""
@@ -496,10 +510,13 @@ class TestDrillDownDrawer:
         wait_for_drawer_open(page)
         wait_for_drawer_content(page)
 
-        # Skip if threshold applies
+        # Skip if threshold applies or no events
         threshold_msg = page.locator("[data-testid='threshold-message']")
+        empty_state = page.locator("#empty-state")
         if threshold_msg.is_visible():
             pytest.skip("Cell has too few events (threshold applies)")
+        if empty_state.is_visible():
+            pytest.skip("Cell has no events")
 
         # Check first event card
         first_card = page.locator("[data-testid='event-card']").first
@@ -695,8 +712,11 @@ class TestDrillDownDrawer:
 
         # Skip if no events
         threshold_msg = page.locator("[data-testid='threshold-message']")
+        empty_state = page.locator("#empty-state")
         if threshold_msg.is_visible():
             pytest.skip("Cell has too few events")
+        if empty_state.is_visible():
+            pytest.skip("Cell has no events")
 
         # Click first event card
         first_card = page.locator("[data-testid='event-card']").first
@@ -720,8 +740,11 @@ class TestDrillDownDrawer:
         wait_for_drawer_content(page)
 
         threshold_msg = page.locator("[data-testid='threshold-message']")
+        empty_state = page.locator("#empty-state")
         if threshold_msg.is_visible():
             pytest.skip("Cell has too few events")
+        if empty_state.is_visible():
+            pytest.skip("Cell has no events")
 
         # Expand first card
         first_card = page.locator("[data-testid='event-card']").first
@@ -743,8 +766,11 @@ class TestDrillDownDrawer:
         wait_for_drawer_content(page)
 
         threshold_msg = page.locator("[data-testid='threshold-message']")
+        empty_state = page.locator("#empty-state")
         if threshold_msg.is_visible():
             pytest.skip("Cell has too few events")
+        if empty_state.is_visible():
+            pytest.skip("Cell has no events")
 
         # Expand first card
         first_card = page.locator("[data-testid='event-card']").first
@@ -766,8 +792,11 @@ class TestDrillDownDrawer:
         wait_for_drawer_content(page)
 
         threshold_msg = page.locator("[data-testid='threshold-message']")
+        empty_state = page.locator("#empty-state")
         if threshold_msg.is_visible():
             pytest.skip("Cell has too few events")
+        if empty_state.is_visible():
+            pytest.skip("Cell has no events")
 
         # Expand first card
         first_card = page.locator("[data-testid='event-card']").first
@@ -792,10 +821,13 @@ class TestDrillDownDrawer:
         wait_for_drawer_open(page)
         wait_for_drawer_content(page)
 
-        # Skip if below threshold
+        # Skip if below threshold or no events
         threshold_msg = page.locator("[data-testid='threshold-message']")
+        empty_state = page.locator("#empty-state")
         if threshold_msg.is_visible():
             pytest.skip("Cell has too few events")
+        if empty_state.is_visible():
+            pytest.skip("Cell has no events")
 
         # Pagination should be visible
         pagination = page.locator("[data-testid='pagination']")

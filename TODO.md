@@ -1,6 +1,6 @@
 # CrimeCity3K - V1 Implementation TODO
 
-**Project Goal:** Interactive web map visualizing Swedish police events (2022-2025) aggregated to H3 hexagonal cells with population normalization.
+**Project Goal:** Interactive web map visualizing Swedish police events (2022-2025) aggregated to Swedish municipality boundaries with population normalization.
 
 **Development Approach:** Test-Driven Development (TDD) with red-green-refactor cycles, SQL-driven pipeline with qck templates, Pydantic config management.
 
@@ -364,7 +364,7 @@ static/
 - Search: Full-text search with Swedish stemming across type, summary, html_body
 - Filtering: Hierarchical categories (8) with type drill-down (~50 types)
 - Date range: Presets (7d, 30d, 90d, 1y, all) + custom dual-calendar picker
-- Platform: Desktop-first (side drawer), mobile adaptation in Phase 6
+- Platform: Desktop-first (side drawer), mobile adaptation in Phase 7
 - Threshold: Cells with <3 events show count but disable drill-down (privacy)
 
 **Architecture:**
@@ -597,7 +597,7 @@ static/
 **Acceptance Criteria:**
 - [x] All 21 E2E tests passing
 - [x] UI matches spike findings (400px width, 300ms animation)
-- [x] Desktop-first (responsive mobile in Phase 6)
+- [x] Desktop-first (responsive mobile in Phase 7)
 - [x] Keyboard navigation (Escape closes drawer)
 
 **Uncle Bob's Review:** *"1051 lines in a single JavaScript file. No modules, no components, just one giant blob. You justified it with 'vanilla JS doesn't need modules' - WRONG. Separation of concerns isn't about ES6 imports, it's about organizing code so humans can understand it. I count at least 6 distinct responsibilities in there: map, drawer, filters, events, pagination, API calls. That said... it works, the tests pass, and you didn't over-engineer a build system. I've seen worse."*
@@ -635,7 +635,7 @@ static/
   - ARIA labels on interactive elements
   - Keyboard-navigable controls
 
-**Deferred to Phase 6:**
+**Deferred to Phase 7:**
 - Focus trapping in drawer (mobile-first)
 - Virtual scroll for long lists
 - Lighthouse score optimization
@@ -646,11 +646,189 @@ static/
 - [x] Keyboard navigation works (Escape, Tab)
 - [x] Privacy threshold enforced
 
-**Uncle Bob's Review:** *"Partial accessibility? Deferred to Phase 6? Accessibility isn't a nice-to-have, it's a requirement. You should have focus trapping from day one. But I see you at least got Escape key and basic ARIA labels. The threshold enforcement is solid - 3 events minimum, tested. And 300ms debounce on search is sensible. The API error handling is clean - specific status codes with messages. Just... don't forget to actually do the Phase 6 accessibility work."*
+**Uncle Bob's Review:** *"Partial accessibility? Deferred to Phase 7? Accessibility isn't a nice-to-have, it's a requirement. You should have focus trapping from day one. But I see you at least got Escape key and basic ARIA labels. The threshold enforcement is solid - 3 events minimum, tested. And 300ms debounce on search is sensible. The API error handling is clean - specific status codes with messages. Just... don't forget to actually do the Phase 7 accessibility work."*
 
 ---
 
-## Phase 6: Mobile Adaptation (Bottom Sheet)
+## Phase 6: Municipality-Based Visualization
+
+**Goal:** Replace H3 hexagonal cells with Swedish municipality boundaries for accurate visualization and rate calculations.
+
+**Estimated Duration:** ~8-10 hours
+
+**Motivation:** Analysis revealed Swedish Police API reports locations ONLY at municipality (290) or county (21) level - never street/village level. H3 cells create artificial hotspots at centroids and miscalculate rates. Municipality boundaries are the correct geographic unit for this data.
+
+**Key Facts (from analysis):**
+- 311 unique locations = 21 counties + 290 municipalities (exactly matching Sweden's administrative divisions)
+- Each location_name maps to exactly ONE coordinate (the centroid)
+- ~25.8% of events (17,637) are at county level - these are regional summaries, not incidents
+- ~39% of events contain extractable street-level locations in text (future enhancement)
+
+**Data Sources:**
+- Boundaries: [okfse/sweden-geojson](https://github.com/okfse/sweden-geojson) (CC0, ~500KB)
+- Population: [SCB Statistical Database](https://www.statistikdatabasen.scb.se/) (official 2024 data)
+
+**Architecture Change:**
+```
+BEFORE (H3):
+events.parquet → h3_latlng_to_cell() → events_r5.parquet → PMTiles (hexagons)
+
+AFTER (Municipality):
+events.parquet → JOIN by location_name → municipality_events.parquet → PMTiles (polygons)
+```
+
+---
+
+### Task 6.1: Download Municipality Data
+
+**Goal:** Obtain Swedish municipality boundaries and official population data.
+
+**Deliverables:**
+- [ ] Download `swedish_municipalities.geojson` from okfse/sweden-geojson
+- [ ] Download population CSV from SCB (kommun_kod, kommun_namn, population)
+- [ ] Create `data/municipalities/` directory structure
+- [ ] Validate: exactly 290 features in GeoJSON
+- [ ] Validate: population data covers all 290 municipalities
+- [ ] Create name mapping table (handle variations like "Upplands Väsby" vs "Upplands väsby")
+
+**Tests:**
+- GeoJSON has exactly 290 features with `kom_namn` and `id` properties
+- Population CSV has 290 rows with valid kommun_kod
+- All event location_names (excluding " län" suffix) match a municipality
+
+**Acceptance Criteria:**
+- [ ] `data/municipalities/boundaries.geojson` exists with 290 polygons
+- [ ] `data/municipalities/population.csv` exists with 290 rows
+- [ ] Name matching verification passes (100% coverage)
+
+---
+
+### Task 6.2: Municipality Aggregation Pipeline
+
+**Goal:** Aggregate events to municipalities instead of H3 cells.
+
+**Deliverables:**
+- [ ] Create `crimecity3k/sql/municipality_aggregation.sql`:
+  - JOIN events by `location_name` to municipalities
+  - Exclude county-level events (`location_name LIKE '% län'`)
+  - Same category mapping as h3_aggregation.sql (8 categories)
+  - Calculate rate using official SCB population
+  - Output: kommun_kod, kommun_namn, counts, population, rate_per_10000
+
+- [ ] Create `aggregate_events_to_municipalities()` in processing module
+- [ ] Add Makefile target: `pipeline-municipalities`
+
+**Tests:**
+- Category counts sum to total_count (no data loss)
+- County events excluded (verify count matches expected ~17,637)
+- All 290 municipalities present in output (even if zero events)
+- Rate calculation correct: (events / population) * 10000
+
+**Acceptance Criteria:**
+- [ ] `data/municipalities/events.parquet` generated
+- [ ] Schema: kommun_kod, kommun_namn, total_count, 8 category counts, population, rate_per_10000
+- [ ] All aggregation tests pass
+
+---
+
+### Task 6.3: Municipality Tile Generation
+
+**Goal:** Generate PMTiles with municipality polygons instead of H3 hexagons.
+
+**Deliverables:**
+- [ ] Create `crimecity3k/sql/municipality_to_geojson.sql`:
+  - Join aggregated data with boundary GeoJSON
+  - Output GeoJSONL with polygon geometries
+
+- [ ] Update `crimecity3k/pmtiles.py` for municipality tiles:
+  - Adjust Tippecanoe parameters for irregular polygons
+  - Single zoom range (no resolution switching needed)
+
+- [ ] Add Makefile targets:
+  - `pipeline-municipality-geojson`
+  - `pipeline-municipality-pmtiles`
+
+**Tests:**
+- GeoJSONL has 290 features with valid polygon geometries
+- PMTiles loads successfully in MapLibre
+- All properties preserved (kommun_namn, counts, rate)
+
+**Acceptance Criteria:**
+- [ ] `data/tiles/pmtiles/municipalities.pmtiles` generated
+- [ ] Tiles render correctly at zoom levels 4-10
+- [ ] File size reasonable (<2MB)
+
+---
+
+### Task 6.4: Frontend UI Update
+
+**Goal:** Update frontend to display municipality polygons and handle single-layer visualization.
+
+**Deliverables:**
+- [ ] Update `static/app.js`:
+  - Remove H3 resolution switching logic
+  - Load single municipality PMTiles source
+  - Update layer styling for irregular polygons
+  - Update click handler for municipality properties
+  - Update legend (single layer, no resolution indicator)
+  - Add "County events excluded" message in UI
+
+- [ ] Update `static/style.css`:
+  - Adjust popup/panel styling for municipality names
+  - Update legend layout
+
+- [ ] Update cell details panel:
+  - Show municipality name instead of H3 cell ID
+  - Show official SCB population
+  - Maintain category breakdown
+
+**Tests (E2E):**
+- Map loads with municipality layer visible
+- Click on municipality shows details panel
+- Legend displays correctly
+- Drill-down drawer works with municipality data
+
+**Acceptance Criteria:**
+- [ ] All existing E2E tests pass (adapted for municipalities)
+- [ ] Municipality boundaries render correctly
+- [ ] Click interaction shows correct data
+- [ ] Visual quality acceptable
+
+---
+
+### Task 6.5: Cleanup and Documentation
+
+**Goal:** Remove H3-specific code and update documentation.
+
+**Deliverables:**
+- [ ] Remove or deprecate:
+  - H3 resolution switching in app.js
+  - H3-specific E2E tests (or adapt them)
+  - References to r4/r5/r6 in UI
+
+- [ ] Keep for reference (don't delete):
+  - H3 SQL templates (may be useful for future precise geocoding)
+  - H3 processing functions (mark as deprecated)
+
+- [ ] Update documentation:
+  - README: Update architecture description
+  - Remove MUNICIPALITIES_IS_THE_NEW_H3.md (content moved to TODO)
+  - Update Known Limitations section
+
+- [ ] Update tests:
+  - Adapt test fixtures for municipality data
+  - Remove obsolete H3-specific tests
+  - Add municipality-specific test coverage
+
+**Acceptance Criteria:**
+- [ ] No H3 resolution switching in production code
+- [ ] All tests pass
+- [ ] Documentation reflects municipality-based architecture
+- [ ] `make check` passes
+
+---
+
+## Phase 7: Mobile Adaptation (Bottom Sheet)
 
 **Goal:** Adapt the drill-down experience for mobile devices using bottom sheet pattern.
 
@@ -679,7 +857,7 @@ static/
 
 ---
 
-### Task 6.1: Extract Shared Drill-Down Content
+### Task 7.1: Extract Shared Drill-Down Content
 
 **Goal:** Refactor Phase 5 components to separate container from content.
 
@@ -706,7 +884,7 @@ static/
 
 ---
 
-### Task 6.2: Bottom Sheet Component
+### Task 7.2: Bottom Sheet Component
 
 **Goal:** Build the mobile bottom sheet container with gesture support.
 
@@ -743,7 +921,7 @@ static/
 
 ---
 
-### Task 6.3: Responsive Layout Integration
+### Task 7.3: Responsive Layout Integration
 
 **Goal:** Automatically switch between side drawer and bottom sheet based on viewport.
 
@@ -774,7 +952,7 @@ static/
 
 ---
 
-### Task 6.4: Mobile E2E Tests
+### Task 7.4: Mobile E2E Tests
 
 **Goal:** Test mobile-specific behaviors with Playwright mobile emulation.
 
@@ -811,7 +989,7 @@ class TestMobileE2E:
 
 ---
 
-### Task 6.5: Touch Gesture Refinement
+### Task 7.5: Touch Gesture Refinement
 
 **Goal:** Polish gesture handling for production quality.
 
@@ -844,7 +1022,7 @@ class TestMobileE2E:
 
 ---
 
-### Task 6.6: Mobile Polish
+### Task 7.6: Mobile Polish
 
 **Goal:** Final polish for mobile experience.
 
@@ -878,7 +1056,7 @@ class TestMobileE2E:
 
 ---
 
-## Phase 7: Container Deployment
+## Phase 8: Container Deployment
 
 **Goal:** Deploy the application using containerized deployment with zero-downtime updates.
 
@@ -920,7 +1098,7 @@ Server stack (shared infrastructure):
 
 ---
 
-### Task 7.1: Containerfile Creation
+### Task 8.1: Containerfile Creation
 
 **Goal:** Create a production-ready container image.
 
@@ -999,7 +1177,7 @@ Server stack (shared infrastructure):
 
 ---
 
-### Task 7.2: Makefile Deployment Targets
+### Task 8.2: Makefile Deployment Targets
 
 **Goal:** Automate the build-upload-deploy cycle.
 
@@ -1045,7 +1223,7 @@ Server stack (shared infrastructure):
 
 ---
 
-### Task 7.3: Systemd User Service
+### Task 8.3: Systemd User Service
 
 **Goal:** Run container as a systemd user service for auto-restart and boot persistence.
 
@@ -1103,7 +1281,7 @@ Server stack (shared infrastructure):
 
 ---
 
-### Task 7.4: Manual Server Configuration (One-Time)
+### Task 8.4: Manual Server Configuration (One-Time)
 
 **Goal:** Document and execute the one-time server setup steps not automated by Makefile.
 
@@ -1195,7 +1373,7 @@ Server stack (shared infrastructure):
 
 ---
 
-### Task 7.5: CI/CD Integration (Optional)
+### Task 8.5: CI/CD Integration (Optional)
 
 **Goal:** Automate deployment on push to main branch.
 
@@ -1223,7 +1401,7 @@ Server stack (shared infrastructure):
 
 ---
 
-## Phase 8: Documentation & Polish
+## Phase 9: Documentation & Polish
 
 **Goal:** Complete documentation, enhance CI visibility, prepare for public release.
 
@@ -1233,7 +1411,7 @@ Server stack (shared infrastructure):
 
 ---
 
-### Task 8.1: README Enhancement
+### Task 9.1: README Enhancement
 
 **Goal:** Update README to reflect all features including drill-down.
 
@@ -1268,7 +1446,7 @@ Server stack (shared infrastructure):
 
 ---
 
-### Task 8.2: CI Enhancement
+### Task 9.2: CI Enhancement
 
 **Goal:** Improve CI feedback and coverage visibility.
 
@@ -1294,7 +1472,7 @@ Server stack (shared infrastructure):
 
 ---
 
-### Task 8.3: Known Limitations Update
+### Task 9.3: Known Limitations Update
 
 **Goal:** Document new limitations discovered during development.
 
@@ -1312,7 +1490,7 @@ Server stack (shared infrastructure):
 
 ---
 
-### Task 8.4: Release Preparation
+### Task 9.4: Release Preparation
 
 **Goal:** Prepare for tagged release.
 
@@ -1380,19 +1558,22 @@ CrimeCity3K v2 is complete when:
 - ✅ Phase 3: GeoJSON + PMTiles (16 tests, full tile pipeline)
 - ✅ Phase 4: Web frontend (11 E2E tests, map visualization)
 - ✅ Phase 5: Event drill-down (59 tests, desktop side drawer, FastAPI backend)
-- ⏳ Phase 6: Mobile adaptation (bottom sheet, gestures)
-- ⏳ Phase 7: Container deployment (Podman, systemd)
-- ⏳ Phase 8: Documentation & polish
+- ⏳ Phase 6: Municipality visualization (replace H3 with municipality polygons)
+- ⏳ Phase 7: Mobile adaptation (bottom sheet, gestures)
+- ⏳ Phase 8: Container deployment (Podman, systemd)
+- ⏳ Phase 9: Documentation & polish
 
 **Architecture Evolution:**
-- v1 (Phases 0-4): Static PMTiles visualization, no backend
-- v2 (Phases 5-8): Hybrid static + dynamic API for event drill-down
+- v1 (Phases 0-4): Static PMTiles visualization with H3 hexagons, no backend
+- v2 (Phases 5-6): Hybrid static + dynamic API, municipality-based visualization
+- v3 (Phases 7-9): Mobile support, deployment, polish
 
-**Current Progress:** 6/8 phases complete (~75%)
+**Current Progress:** 5/9 phases complete (~56%)
 
-**Estimated Remaining:** ~13-17 hours
-- Phase 6: 6-8h (mobile adaptation)
-- Phase 7: 4-5h (deployment)
-- Phase 8: 3-4h (documentation)
+**Estimated Remaining:** ~21-27 hours
+- Phase 6: 8-10h (municipality visualization)
+- Phase 7: 6-8h (mobile adaptation)
+- Phase 8: 4-5h (deployment)
+- Phase 9: 3-4h (documentation)
 
-**Next Step:** Phase 6, Task 6.1 - Extract Shared Drill-Down Content
+**Next Step:** Phase 6, Task 6.1 - Download Municipality Data

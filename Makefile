@@ -313,10 +313,19 @@ deploy-container: ## Deploy container on server (stop old, start new)
 	@echo "Starting new container..."
 	ssh $(DEPLOY_SERVER) "podman run -d --name $(DEPLOY_CONTAINER_NAME) -p 127.0.0.1:8001:8000 $(DEPLOY_IMAGE_NAME):production"
 	@echo ""
-	@echo "Waiting for health check..."
-	@sleep 5
-	@ssh $(DEPLOY_SERVER) "podman exec $(DEPLOY_CONTAINER_NAME) curl -f http://localhost:8000/health" || \
-		(echo "✗ Health check failed!" && exit 1)
+	@echo "Waiting for container to become healthy (up to 30s)..."
+	@for i in 1 2 3 4 5 6; do \
+		sleep 5; \
+		echo "  Health check attempt $$i/6..."; \
+		if ssh $(DEPLOY_SERVER) "podman exec $(DEPLOY_CONTAINER_NAME) curl -sf http://localhost:8000/health" 2>/dev/null; then \
+			echo "  ✓ Health check passed"; \
+			exit 0; \
+		fi; \
+	done; \
+	echo "✗ Health check failed after 30 seconds"; \
+	echo "Container logs:"; \
+	ssh $(DEPLOY_SERVER) "podman logs --tail 20 $(DEPLOY_CONTAINER_NAME)" || true; \
+	exit 1
 	@echo ""
 	@echo "✓ Deployment successful"
 	@echo "  Container: $(DEPLOY_CONTAINER_NAME)"

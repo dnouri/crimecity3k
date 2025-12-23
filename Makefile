@@ -5,7 +5,7 @@ CONFIG := config.toml
 
 # Directories
 DATA_DIR := data
-H3_DIR := $(DATA_DIR)/h3
+MUNI_DIR := $(DATA_DIR)/municipalities
 TILES_DIR := $(DATA_DIR)/tiles
 
 # Upstream data source (polisen-se-events-history GitHub release)
@@ -20,7 +20,7 @@ SQL_DIR := crimecity3k/sql
 # Phony targets
 .PHONY: help install check format test test-unit test-e2e serve clean \
         test-fixtures fetch-events fetch-events-force \
-        pipeline-population pipeline-h3 pipeline-geojson pipeline-pmtiles pipeline-all
+        pipeline-municipalities pipeline-geojson pipeline-pmtiles pipeline-all
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # DEVELOPMENT TARGETS
@@ -33,19 +33,19 @@ help: ## Show this help message
 	@grep -E '^[a-zA-Z0-9_-]+:.*## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "}; {printf "  %-20s %s\n", $$1, $$2}'
 	@echo ""
 	@echo "Data Pipeline:"
-	@echo "  fetch-events         Download events.parquet from upstream release"
-	@echo "  fetch-events-force   Force re-download events.parquet"
-	@echo "  pipeline-all         Build complete pipeline (population + events + tiles)"
-	@echo "  pipeline-population  Build H3 population data (r4, r5, r6)"
-	@echo "  pipeline-h3          Aggregate events to H3 cells"
-	@echo "  pipeline-geojson     Export to GeoJSONL format"
-	@echo "  pipeline-pmtiles     Generate PMTiles (requires Tippecanoe)"
+	@echo "  fetch-events            Download events.parquet from upstream release"
+	@echo "  fetch-events-force      Force re-download events.parquet"
+	@echo "  pipeline-all            Build complete pipeline (municipalities + tiles)"
+	@echo "  pipeline-municipalities Aggregate events to municipality boundaries"
+	@echo "  pipeline-geojson        Export to GeoJSONL format"
+	@echo "  pipeline-pmtiles        Generate PMTiles (requires Tippecanoe)"
 	@echo ""
 	@echo "Deployment:"
 	@echo "  deploy               Build and deploy to production server"
 	@echo "  build-container      Build container image with git SHA tag"
 	@echo "  upload-container     Upload tarball to server and load image"
 	@echo "  deploy-container     Stop old container, start new one"
+	@echo "  deploy-cleanup       Clean up old images and tarballs on server"
 	@echo "  install-service      Install systemd user service (one-time)"
 	@echo "  deploy-status        Check deployment status on server"
 	@echo "  deploy-logs          View container logs (follow mode)"
@@ -99,7 +99,7 @@ serve: ## Start local development server at http://localhost:8080
 	uv run python -m crimecity3k.api.main --port 8080
 
 clean: ## Remove generated files and caches
-	rm -rf $(H3_DIR) $(TILES_DIR)
+	rm -rf $(TILES_DIR)
 	rm -f $(DATA_DIR)/events.parquet
 	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
 	find . -type d -name .pytest_cache -exec rm -rf {} + 2>/dev/null || true
@@ -126,129 +126,85 @@ fetch-events-force: ## Force re-download events.parquet
 	@$(MAKE) fetch-events
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# SCB POPULATION DATA
+# MUNICIPALITY DATA PIPELINE
 # ═══════════════════════════════════════════════════════════════════════════════
+#
+# Pipeline for aggregating events to Swedish municipality boundaries.
+# Uses pre-downloaded boundary and population data from data/municipalities/
+#
 
-# Download SCB population data (cached, one-time)
-$(DATA_DIR)/population_1km_2024.gpkg:
-	@echo "═══ Downloading SCB population data ═══"
-	@mkdir -p $(DATA_DIR)
-	curl -L "https://geodata.scb.se/geoserver/stat/wfs?\
-service=WFS&REQUEST=GetFeature&version=1.1.0&\
-TYPENAMES=stat:befolkning_1km_2024&outputFormat=geopackage" \
-	-o $@
-	@echo "✓ Population data downloaded: $@ ($$(du -h $@ | cut -f1))"
+# Municipality data files (committed to repo)
+MUNI_BOUNDARIES := $(MUNI_DIR)/boundaries.geojson
+MUNI_POPULATION := $(MUNI_DIR)/population.csv
 
-# Pattern rule: Convert population grid to H3 cells at specified resolution
-# Example: make data/h3/population_r5.parquet builds resolution 5
-$(H3_DIR)/population_r%.parquet: $(DATA_DIR)/population_1km_2024.gpkg \
-                                  $(SQL_DIR)/population_to_h3.sql \
-                                  $(CONFIG)
-	@echo "═══ Converting population to H3 resolution $* ═══"
-	@mkdir -p $(H3_DIR)
+# Aggregate events to municipalities
+# Depends on: events data, population data, boundaries, SQL template, config
+$(MUNI_DIR)/events.parquet: $(DATA_DIR)/events.parquet \
+                            $(MUNI_POPULATION) \
+                            $(SQL_DIR)/municipality_aggregation.sql \
+                            $(CONFIG)
+	@echo "═══ Aggregating events to municipalities ═══"
+	@mkdir -p $(MUNI_DIR)
 	uv run python -c "from pathlib import Path; \
-		from crimecity3k.config import Config; \
-		from crimecity3k.h3_processing import convert_population_to_h3; \
-		convert_population_to_h3(Path('$<'), Path('$@'), $*, Config.from_file('$(CONFIG)'))"
-	@echo "✓ H3 conversion complete: $@ ($$(du -h $@ | cut -f1))"
-
-# Convenience target: Build all population H3 resolutions
-.PHONY: pipeline-population
-pipeline-population: $(H3_DIR)/population_r4.parquet \
-                     $(H3_DIR)/population_r5.parquet \
-                     $(H3_DIR)/population_r6.parquet
-	@echo "═══ Population pipeline complete ═══"
-	@echo "  R4 (~25km): $(H3_DIR)/population_r4.parquet ($$(du -h $(H3_DIR)/population_r4.parquet | cut -f1))"
-	@echo "  R5 (~8km):  $(H3_DIR)/population_r5.parquet ($$(du -h $(H3_DIR)/population_r5.parquet | cut -f1))"
-	@echo "  R6 (~3km):  $(H3_DIR)/population_r6.parquet ($$(du -h $(H3_DIR)/population_r6.parquet | cut -f1))"
-
-# Pattern rule: Aggregate events to H3 cells with category filtering
-# Example: make data/h3/events_r5.parquet builds resolution 5
-# Depends on: events data, population data (for normalization), SQL template, config
-$(H3_DIR)/events_r%.parquet: $(DATA_DIR)/events.parquet \
-                             $(H3_DIR)/population_r%.parquet \
-                             $(SQL_DIR)/h3_aggregation.sql \
-                             $(CONFIG)
-	@echo "═══ Aggregating events to H3 resolution $* ═══"
-	@mkdir -p $(H3_DIR)
-	uv run python -c "from pathlib import Path; \
-		from crimecity3k.config import Config; \
-		from crimecity3k.h3_processing import aggregate_events_to_h3; \
-		aggregate_events_to_h3(\
+		from crimecity3k.municipality_processing import aggregate_events_to_municipalities; \
+		aggregate_events_to_municipalities(\
 			Path('$(DATA_DIR)/events.parquet'), \
-			Path('$(H3_DIR)/population_r$*.parquet'), \
-			Path('$@'), \
-			$*, \
-			Config.from_file('$(CONFIG)'))"
-	@echo "✓ H3 aggregation complete: $@ ($$(du -h $@ | cut -f1))"
+			Path('$(MUNI_POPULATION)'), \
+			Path('$@'))"
+	@echo "✓ Municipality aggregation complete: $@ ($$(du -h $@ | cut -f1))"
 
-# Convenience target: Build all event H3 aggregations
-.PHONY: pipeline-h3
-pipeline-h3: $(H3_DIR)/events_r4.parquet \
-             $(H3_DIR)/events_r5.parquet \
-             $(H3_DIR)/events_r6.parquet
-	@echo "═══ Event H3 aggregation pipeline complete ═══"
-	@echo "  R4 (~25km): $(H3_DIR)/events_r4.parquet ($$(du -h $(H3_DIR)/events_r4.parquet | cut -f1))"
-	@echo "  R5 (~8km):  $(H3_DIR)/events_r5.parquet ($$(du -h $(H3_DIR)/events_r5.parquet | cut -f1))"
-	@echo "  R6 (~3km):  $(H3_DIR)/events_r6.parquet ($$(du -h $(H3_DIR)/events_r6.parquet | cut -f1))"
-
-# Convenience target: Build complete pipeline (population + events)
-.PHONY: pipeline-all
-pipeline-all: pipeline-pmtiles
-	@echo "═══ Complete pipeline ready ═══"
+# Convenience target: Aggregate events to municipalities
+.PHONY: pipeline-municipalities
+pipeline-municipalities: $(MUNI_DIR)/events.parquet
+	@echo "═══ Municipality aggregation pipeline complete ═══"
+	@echo "  Events: $(MUNI_DIR)/events.parquet ($$(du -h $(MUNI_DIR)/events.parquet | cut -f1))"
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# Tile Generation Pipeline
+# TILE GENERATION PIPELINE
 # ═══════════════════════════════════════════════════════════════════════════════
 
 # Subdirectories for tiles
 GEOJSONL_DIR := $(TILES_DIR)/geojsonl
-PMTILES_DIR := $(TILES_DIR)/pmtiles
 
-# Pattern rule: Export H3 aggregated events to GeoJSONL
-# Example: make data/tiles/geojsonl/h3_r5.geojsonl.gz
-$(GEOJSONL_DIR)/h3_r%.geojsonl.gz: $(H3_DIR)/events_r%.parquet \
-                                    $(SQL_DIR)/h3_to_geojson.sql
-	@echo "═══ Exporting H3 r$* to GeoJSONL ═══"
-	@mkdir -p $(GEOJSONL_DIR)
-	uv run python -c "import duckdb; from pathlib import Path; \
-		from crimecity3k.tile_generation import export_h3_to_geojson; \
-		conn = duckdb.connect(); \
-		conn.execute('INSTALL h3 FROM community; LOAD h3; INSTALL spatial; LOAD spatial'); \
-		conn.execute(\"CREATE VIEW events AS SELECT * FROM '$(H3_DIR)/events_r$*.parquet'\"); \
-		export_h3_to_geojson(conn, 'events', Path('$@')); \
-		conn.close()"
+# Export municipalities to GeoJSONL
+$(TILES_DIR)/municipalities.geojsonl.gz: $(MUNI_DIR)/events.parquet \
+                                          $(MUNI_BOUNDARIES)
+	@echo "═══ Exporting municipalities to GeoJSONL ═══"
+	@mkdir -p $(TILES_DIR)
+	uv run python -c "from pathlib import Path; \
+		from crimecity3k.municipality_tiles import export_municipalities_to_geojsonl; \
+		export_municipalities_to_geojsonl(\
+			Path('$(MUNI_BOUNDARIES)'), \
+			Path('$(MUNI_DIR)/events.parquet'), \
+			Path('$@'))"
 	@echo "✓ GeoJSONL export complete: $@ ($$(du -h $@ | cut -f1))"
 
-# Pattern rule: Generate PMTiles from GeoJSONL using Tippecanoe
-# Example: make data/tiles/pmtiles/h3_r5.pmtiles
-$(PMTILES_DIR)/h3_r%.pmtiles: $(GEOJSONL_DIR)/h3_r%.geojsonl.gz
-	@echo "═══ Generating PMTiles for H3 r$* ═══"
-	@mkdir -p $(PMTILES_DIR)
+# Generate PMTiles from municipality GeoJSONL
+# Output to pmtiles/ subdirectory to match API mount path
+$(TILES_DIR)/pmtiles/municipalities.pmtiles: $(TILES_DIR)/municipalities.geojsonl.gz
+	@echo "═══ Generating municipality PMTiles ═══"
+	@mkdir -p $(TILES_DIR)/pmtiles
 	uv run python -c "from pathlib import Path; \
-		from crimecity3k.pmtiles import generate_pmtiles; \
-		generate_pmtiles(Path('$<'), Path('$@'), $*)"
+		from crimecity3k.municipality_tiles import generate_municipality_pmtiles; \
+		generate_municipality_pmtiles(Path('$<'), Path('$@'))"
 	@echo "✓ PMTiles complete: $@ ($$(du -h $@ | cut -f1))"
 
-# Convenience target: Build all GeoJSONL exports
+# Convenience target: Build GeoJSONL export
 .PHONY: pipeline-geojson
-pipeline-geojson: $(GEOJSONL_DIR)/h3_r4.geojsonl.gz \
-                  $(GEOJSONL_DIR)/h3_r5.geojsonl.gz \
-                  $(GEOJSONL_DIR)/h3_r6.geojsonl.gz
+pipeline-geojson: $(TILES_DIR)/municipalities.geojsonl.gz
 	@echo "═══ GeoJSONL export pipeline complete ═══"
-	@echo "  R4: $(GEOJSONL_DIR)/h3_r4.geojsonl.gz ($$(du -h $(GEOJSONL_DIR)/h3_r4.geojsonl.gz | cut -f1))"
-	@echo "  R5: $(GEOJSONL_DIR)/h3_r5.geojsonl.gz ($$(du -h $(GEOJSONL_DIR)/h3_r5.geojsonl.gz | cut -f1))"
-	@echo "  R6: $(GEOJSONL_DIR)/h3_r6.geojsonl.gz ($$(du -h $(GEOJSONL_DIR)/h3_r6.geojsonl.gz | cut -f1))"
+	@echo "  Municipalities: $(TILES_DIR)/municipalities.geojsonl.gz ($$(du -h $(TILES_DIR)/municipalities.geojsonl.gz | cut -f1))"
 
-# Convenience target: Build all PMTiles
+# Convenience target: Build PMTiles
 .PHONY: pipeline-pmtiles
-pipeline-pmtiles: $(PMTILES_DIR)/h3_r4.pmtiles \
-                  $(PMTILES_DIR)/h3_r5.pmtiles \
-                  $(PMTILES_DIR)/h3_r6.pmtiles
+pipeline-pmtiles: $(TILES_DIR)/pmtiles/municipalities.pmtiles
 	@echo "═══ PMTiles generation pipeline complete ═══"
-	@echo "  R4: $(PMTILES_DIR)/h3_r4.pmtiles ($$(du -h $(PMTILES_DIR)/h3_r4.pmtiles | cut -f1))"
-	@echo "  R5: $(PMTILES_DIR)/h3_r5.pmtiles ($$(du -h $(PMTILES_DIR)/h3_r5.pmtiles | cut -f1))"
-	@echo "  R6: $(PMTILES_DIR)/h3_r6.pmtiles ($$(du -h $(PMTILES_DIR)/h3_r6.pmtiles | cut -f1))"
+	@echo "  Municipalities: $(TILES_DIR)/pmtiles/municipalities.pmtiles ($$(du -h $(TILES_DIR)/pmtiles/municipalities.pmtiles | cut -f1))"
+
+# Convenience target: Build complete pipeline (municipalities + tiles)
+.PHONY: pipeline-all
+pipeline-all: pipeline-pmtiles
+	@echo "═══ Complete pipeline ready ═══"
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # DEPLOYMENT AUTOMATION
@@ -297,13 +253,13 @@ DEPLOY_TARBALL := $(DEPLOY_IMAGE_NAME)-$(DEPLOY_TAG).tar
 # ───────────────────────────────────────────────────────────────────────────────
 
 .PHONY: deploy build-container upload-container deploy-container \
-        install-service deploy-logs deploy-status
+        install-service deploy-logs deploy-status deploy-cleanup
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # MAIN DEPLOYMENT TARGETS
 # ═══════════════════════════════════════════════════════════════════════════════
 
-deploy: build-container upload-container deploy-container ## Build and deploy to production
+deploy: build-container upload-container deploy-container deploy-cleanup ## Build and deploy to production
 	@echo "════════════════════════════════════════════════════════════"
 	@echo "✓ Deployment complete!"
 	@echo "  Version:  $(DEPLOY_TAG)"
@@ -357,10 +313,19 @@ deploy-container: ## Deploy container on server (stop old, start new)
 	@echo "Starting new container..."
 	ssh $(DEPLOY_SERVER) "podman run -d --name $(DEPLOY_CONTAINER_NAME) -p 127.0.0.1:8001:8000 $(DEPLOY_IMAGE_NAME):production"
 	@echo ""
-	@echo "Waiting for health check..."
-	@sleep 5
-	@ssh $(DEPLOY_SERVER) "podman exec $(DEPLOY_CONTAINER_NAME) curl -f http://localhost:8000/health" || \
-		(echo "✗ Health check failed!" && exit 1)
+	@echo "Waiting for container to become healthy (up to 30s)..."
+	@for i in 1 2 3 4 5 6; do \
+		sleep 5; \
+		echo "  Health check attempt $$i/6..."; \
+		if ssh $(DEPLOY_SERVER) "podman exec $(DEPLOY_CONTAINER_NAME) curl -sf http://localhost:8000/health" 2>/dev/null; then \
+			echo "  ✓ Health check passed"; \
+			exit 0; \
+		fi; \
+	done; \
+	echo "✗ Health check failed after 30 seconds"; \
+	echo "Container logs:"; \
+	ssh $(DEPLOY_SERVER) "podman logs --tail 20 $(DEPLOY_CONTAINER_NAME)" || true; \
+	exit 1
 	@echo ""
 	@echo "✓ Deployment successful"
 	@echo "  Container: $(DEPLOY_CONTAINER_NAME)"
@@ -405,3 +370,23 @@ deploy-logs: ## View container logs on server (follow mode)
 	@echo "Press Ctrl+C to exit"
 	@echo "════════════════════════════════════════════════════════════"
 	ssh $(DEPLOY_SERVER) "podman logs -f $(DEPLOY_CONTAINER_NAME)"
+
+deploy-cleanup: ## Clean up old images and tarballs on server
+	@echo "════════════════════════════════════════════════════════════"
+	@echo "Cleaning up old deployments on server"
+	@echo "════════════════════════════════════════════════════════════"
+	@echo ""
+	@echo "Removing uploaded tarballs..."
+	ssh $(DEPLOY_SERVER) "rm -f $(DEPLOY_DIR)/crimecity3k-*.tar"
+	@echo ""
+	@echo "Removing dangling images..."
+	ssh $(DEPLOY_SERVER) "podman image prune -f"
+	@echo ""
+	@echo "Keeping only :production and :latest tags, removing old versioned images..."
+	@# Get all crimecity3k images except production/latest, keep the 2 most recent, remove the rest
+	ssh $(DEPLOY_SERVER) "podman images $(DEPLOY_IMAGE_NAME) --format '{{.Tag}}' | grep -v -E '^(production|latest)$$' | tail -n +3 | xargs -r -I {} podman rmi $(DEPLOY_IMAGE_NAME):{} 2>/dev/null || true"
+	@echo ""
+	@echo "✓ Cleanup complete"
+	@echo ""
+	@echo "Remaining images:"
+	@ssh $(DEPLOY_SERVER) "podman images $(DEPLOY_IMAGE_NAME) --format 'table {{.Repository}}:{{.Tag}}\t{{.Size}}\t{{.Created}}'" || true

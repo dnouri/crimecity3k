@@ -21,7 +21,7 @@ def _find_free_port() -> int:
         return port
 
 
-def _run_server(port: int, root_dir: Path, tiles_dir: Path) -> None:
+def _run_server(port: int, root_dir: Path) -> None:
     """Run FastAPI server in subprocess.
 
     This server supports HTTP Range requests (via Starlette's StaticFiles),
@@ -31,7 +31,7 @@ def _run_server(port: int, root_dir: Path, tiles_dir: Path) -> None:
 
     from crimecity3k.api.main import create_app
 
-    app = create_app(root_dir, tiles_dir=tiles_dir)
+    app = create_app(root_dir)
     uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")
 
 
@@ -52,12 +52,9 @@ def live_server() -> Generator[str]:
     server_url = f"http://127.0.0.1:{port}"
     # Use tests/fixtures/ as server root (contains static/, data/events.parquet, etc.)
     project_root = Path(__file__).parent / "fixtures"
-    tiles_dir = project_root / "data" / "tiles" / "pmtiles"
 
     # Start server in subprocess (uvicorn needs its own process)
-    server_process = multiprocessing.Process(
-        target=_run_server, args=(port, project_root, tiles_dir)
-    )
+    server_process = multiprocessing.Process(target=_run_server, args=(port, project_root))
     server_process.start()
 
     # Wait for server to be ready (including database initialization)

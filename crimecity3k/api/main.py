@@ -85,6 +85,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     root_dir: Path = getattr(app.state, "root_dir", Path(__file__).parent.parent.parent)
     events_path = root_dir / "data" / "events.parquet"
 
+    # Mount static files if not already mounted (for production uvicorn deployment)
+    _mount_static_files(app, root_dir)
+
     try:
         print(f"Initializing database from {events_path}...")
         app.state.db = init_database(events_path)
@@ -100,6 +103,26 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     # Cleanup
     if app.state.db:
         app.state.db.close()
+
+
+def _mount_static_files(app: FastAPI, root_dir: Path) -> None:
+    """Mount static files for frontend, PMTiles, and data.
+
+    Only mounts if not already mounted (idempotent).
+    Mount order matters: specific paths first, catch-all "/" last.
+    """
+    # Check if already mounted
+    mounted_paths = {route.path for route in app.routes if hasattr(route, "path")}
+
+    # Mount data directory FIRST (more specific than /)
+    data_dir = root_dir / "data"
+    if data_dir.exists() and "/data" not in mounted_paths:
+        app.mount("/data", StaticFiles(directory=data_dir), name="data")
+
+    # Mount static files LAST (catch-all for frontend SPA routing)
+    static_dir = root_dir / "static"
+    if static_dir.exists() and "/" not in mounted_paths:
+        app.mount("/", StaticFiles(directory=static_dir, html=True), name="frontend")
 
 
 # API metadata for OpenAPI docs
@@ -245,7 +268,6 @@ async def get_events(
 
 def create_app(
     root_dir: Path | None = None,
-    tiles_dir: Path | None = None,
 ) -> FastAPI:
     """Create configured FastAPI app with static file mounts.
 
@@ -253,7 +275,6 @@ def create_app(
 
     Args:
         root_dir: Directory containing static/ folder. Defaults to project root.
-        tiles_dir: Directory containing PMTiles. Defaults to root_dir/data/tiles/pmtiles.
 
     Returns:
         Configured FastAPI application
@@ -261,29 +282,11 @@ def create_app(
     if root_dir is None:
         root_dir = Path(__file__).parent.parent.parent
 
-    if tiles_dir is None:
-        tiles_dir = root_dir / "data" / "tiles" / "pmtiles"
-
     # Store root_dir for lifespan to find events.parquet
     app.state.root_dir = root_dir
 
-    # Mount static files (Starlette's StaticFiles supports HTTP Range requests)
-    static_dir = root_dir / "static"
-    if static_dir.exists():
-        app.mount("/static", StaticFiles(directory=static_dir), name="static")
-
-    # Mount PMTiles directory (needs Range support for efficient tile fetching)
-    if tiles_dir.exists():
-        app.mount(
-            "/data/tiles/pmtiles",
-            StaticFiles(directory=tiles_dir),
-            name="tiles",
-        )
-
-    # Mount data directory for other data files
-    data_dir = root_dir / "data"
-    if data_dir.exists():
-        app.mount("/data", StaticFiles(directory=data_dir), name="data")
+    # Static files are mounted in lifespan for both direct uvicorn and create_app usage
+    # (mounting here is no longer needed as lifespan handles it)
 
     return app
 

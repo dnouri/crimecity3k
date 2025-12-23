@@ -67,14 +67,22 @@ jobs:
         env:
           DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
           DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+          DEPLOY_SERVER: ${{ secrets.DEPLOY_SERVER }}
         run: |
           mkdir -p ~/.ssh
           echo "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
           echo "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
           chmod 644 ~/.ssh/known_hosts
-          eval "$(ssh-agent -s)"
-          ssh-add ~/.ssh/deploy_key
+          # Extract hostname from DEPLOY_SERVER (format: user@hostname)
+          DEPLOY_HOST="${DEPLOY_SERVER#*@}"
+          # Create SSH config to use deploy key automatically for all connections
+          cat > ~/.ssh/config << EOF
+          Host $DEPLOY_HOST
+              IdentityFile ~/.ssh/deploy_key
+              IdentitiesOnly yes
+          EOF
+          chmod 600 ~/.ssh/config
 
       - name: Upload container to server
         env:

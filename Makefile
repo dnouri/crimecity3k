@@ -45,6 +45,7 @@ help: ## Show this help message
 	@echo "  build-container      Build container image with git SHA tag"
 	@echo "  upload-container     Upload tarball to server and load image"
 	@echo "  deploy-container     Stop old container, start new one"
+	@echo "  deploy-cleanup       Clean up old images and tarballs on server"
 	@echo "  install-service      Install systemd user service (one-time)"
 	@echo "  deploy-status        Check deployment status on server"
 	@echo "  deploy-logs          View container logs (follow mode)"
@@ -252,13 +253,13 @@ DEPLOY_TARBALL := $(DEPLOY_IMAGE_NAME)-$(DEPLOY_TAG).tar
 # ───────────────────────────────────────────────────────────────────────────────
 
 .PHONY: deploy build-container upload-container deploy-container \
-        install-service deploy-logs deploy-status
+        install-service deploy-logs deploy-status deploy-cleanup
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # MAIN DEPLOYMENT TARGETS
 # ═══════════════════════════════════════════════════════════════════════════════
 
-deploy: build-container upload-container deploy-container ## Build and deploy to production
+deploy: build-container upload-container deploy-container deploy-cleanup ## Build and deploy to production
 	@echo "════════════════════════════════════════════════════════════"
 	@echo "✓ Deployment complete!"
 	@echo "  Version:  $(DEPLOY_TAG)"
@@ -360,3 +361,23 @@ deploy-logs: ## View container logs on server (follow mode)
 	@echo "Press Ctrl+C to exit"
 	@echo "════════════════════════════════════════════════════════════"
 	ssh $(DEPLOY_SERVER) "podman logs -f $(DEPLOY_CONTAINER_NAME)"
+
+deploy-cleanup: ## Clean up old images and tarballs on server
+	@echo "════════════════════════════════════════════════════════════"
+	@echo "Cleaning up old deployments on server"
+	@echo "════════════════════════════════════════════════════════════"
+	@echo ""
+	@echo "Removing uploaded tarballs..."
+	ssh $(DEPLOY_SERVER) "rm -f $(DEPLOY_DIR)/crimecity3k-*.tar"
+	@echo ""
+	@echo "Removing dangling images..."
+	ssh $(DEPLOY_SERVER) "podman image prune -f"
+	@echo ""
+	@echo "Keeping only :production and :latest tags, removing old versioned images..."
+	@# Get all crimecity3k images except production/latest, keep the 2 most recent, remove the rest
+	ssh $(DEPLOY_SERVER) "podman images $(DEPLOY_IMAGE_NAME) --format '{{.Tag}}' | grep -v -E '^(production|latest)$$' | tail -n +3 | xargs -r -I {} podman rmi $(DEPLOY_IMAGE_NAME):{} 2>/dev/null || true"
+	@echo ""
+	@echo "✓ Cleanup complete"
+	@echo ""
+	@echo "Remaining images:"
+	@ssh $(DEPLOY_SERVER) "podman images $(DEPLOY_IMAGE_NAME) --format 'table {{.Repository}}:{{.Tag}}\t{{.Size}}\t{{.Created}}'" || true

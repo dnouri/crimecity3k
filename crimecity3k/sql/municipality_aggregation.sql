@@ -29,6 +29,7 @@
 --   other_count       : INTEGER  (uncategorized events)
 --   type_counts       : STRUCT[] (sparse array: [{type: VARCHAR, count: BIGINT}, ...])
 --   population        : INTEGER  (official SCB population)
+--   rate_per_10000    : DOUBLE   (events per 10,000 population)
 --
 -- Category definitions (same 52 types → 8 categories as H3):
 --   traffic       : 7 types  (accidents, traffic violations, drunk driving)
@@ -192,7 +193,8 @@ COPY (
         weapons_count,
         other_count,
         type_counts,
-        population
+        population,
+        (CAST(total_count AS DOUBLE) / population) * 10000 AS rate_per_10000
     FROM merged
     ORDER BY total_count DESC
 

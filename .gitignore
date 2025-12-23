@@ -11,6 +11,7 @@ data/municipalities/*.geojsonl.gz
 
 # Generated test fixtures (created by make test-fixtures)
 tests/fixtures/data/tiles/
+tests/fixtures/data/municipalities/
 tests/fixtures/static/
 
 # Python

@@ -1,181 +1,135 @@
 # CrimeCity3K
 
+[![CI](https://github.com/dnouri/crimecity3k/actions/workflows/ci.yml/badge.svg)](https://github.com/dnouri/crimecity3k/actions/workflows/ci.yml)
 [![Python 3.13+](https://img.shields.io/badge/python-3.13+-blue.svg)](https://www.python.org/downloads/)
 
-Interactive web map visualizing Swedish police events (2022-2025) aggregated to H3 hexagonal cells with population normalization.
-
-## Features
-
-- **H3 Hexagonal Aggregation**: Events aggregated to multiple resolutions (r4 ~25km, r5 ~8km, r6 ~3km)
-- **Population Normalization**: Crime rates per 10,000 residents using official SCB data
-- **Category Filtering**: Filter by 8 crime categories (traffic, property, violence, etc.)
-- **SQL-Driven Pipeline**: All transformations via DuckDB SQL templates
-- **Vector Tiles**: PMTiles format for efficient web rendering
-- **Interactive Map**: MapLibre GL JS with automatic resolution switching
+Interactive map of Swedish police events with drill-down search, category filtering, and population-normalized crime rates across all 290 municipalities.
 
 ## Quick Start
 
-### Prerequisites
-
-- Python 3.13+
-- [uv](https://github.com/astral-sh/uv) package manager
-- [Tippecanoe](https://github.com/felt/tippecanoe) for PMTiles generation
-
-### Installation
-
 ```bash
-git clone <repo-url>
-cd crimecity3k
+# Install dependencies
 make install
-```
 
-### View the Map
+# Fetch events data and build pipeline
+make fetch-events
+make pipeline-all
 
-```bash
 # Start local server
 make serve
-
-# Open in browser
-# http://localhost:8080/static/index.html
+# Open http://localhost:8080/static/index.html
 ```
 
-### Build Data Pipeline
+**Prerequisites:** Python 3.13+, [uv](https://github.com/astral-sh/uv), [Tippecanoe](https://github.com/felt/tippecanoe)
 
-```bash
-# Download population data and build complete pipeline
-make pipeline-all
-```
+## Features
 
-## Development
+**Interactive Map**
+- Vector tiles rendered with MapLibre GL JS and PMTiles
+- Municipality boundaries with event counts and crime rates
+- H3 hexagonal cells for finer granularity at higher zoom levels
+- Choropleth coloring by absolute count or rate per 10,000 population
 
-### Testing
+**Event Drill-Down**
+- Click any region to browse individual events
+- Full-text search with Swedish stemming ("stöld" matches "stölder")
+- Filter by 8 crime categories: traffic, property, violence, narcotics, fraud, public order, weapons, other
+- Date range presets (7d, 30d, 90d) or custom date picker
+- Paginated results with event details and links to police reports
 
-```bash
-# Run all tests with coverage
-make test
+**Responsive Design**
+- Desktop: slide-out drawer for event list
+- Mobile: bottom sheet with touch-friendly controls
+- Keyboard shortcuts (`S` search, `Esc` close, `?` help)
 
-# Run unit tests only (fast, no browser)
-make test-unit
-
-# Run E2E browser tests
-make test-e2e
-```
-
-### Code Quality
-
-```bash
-# Run linting and type checking
-make check
-
-# Auto-format code
-make format
-```
+**Privacy Protection**
+- Hides individual event details when fewer than 3 events in a region
+- Aggregate counts still visible on map
 
 ## Architecture
 
 ```
 crimecity3k/
-├── crimecity3k/           # Python package
-│   ├── config.py          # TOML configuration management
-│   ├── h3_processing.py   # Population and event H3 aggregation
-│   ├── tile_generation.py # GeoJSON export for tiles
-│   ├── pmtiles.py         # PMTiles generation via Tippecanoe
-│   └── sql/               # DuckDB SQL templates
-│       ├── population_to_h3.sql
-│       ├── h3_aggregation.sql
-│       └── h3_to_geojson.sql
-├── static/                # Frontend (no build step)
-│   ├── index.html         # HTML structure
-│   ├── app.js             # MapLibre + PMTiles (~350 lines)
-│   └── style.css          # Responsive CSS
-├── tests/                 # pytest test suite
-│   ├── test_*.py          # Unit and integration tests
-│   └── test_frontend_e2e.py  # Playwright E2E tests
-├── data/                  # Generated data (gitignored)
-│   ├── h3/                # H3 aggregated Parquet files
-│   └── tiles/             # GeoJSONL and PMTiles
-└── Makefile               # Build orchestration
+├── crimecity3k/
+│   ├── api/                    # FastAPI backend
+│   │   ├── main.py             # App, routes, static file serving
+│   │   ├── queries.py          # DuckDB event queries
+│   │   ├── fts.py              # Full-text search index
+│   │   ├── categories.py       # Event type → category mapping
+│   │   └── schemas.py          # Pydantic request/response models
+│   ├── municipality_*.py       # Municipality data processing
+│   └── sql/
+│       └── municipality_aggregation.sql
+├── static/                     # Frontend (no build step)
+│   ├── index.html
+│   ├── app.js                  # MapLibre + drill-down UI (~1400 lines)
+│   └── style.css
+├── tests/
+│   ├── test_*.py               # pytest unit/integration tests
+│   └── test_frontend_e2e.py    # Playwright browser tests
+├── data/                       # Generated data (gitignored)
+│   ├── events.parquet          # Source events
+│   ├── municipalities/         # Aggregated parquet files
+│   └── tiles/                  # GeoJSONL and PMTiles
+└── Makefile                    # Build orchestration
 ```
 
-### Data Pipeline
+## API Endpoints
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /api/events` | Query events by H3 cell or location with filtering |
+| `GET /api/types` | Category → event types hierarchy for filter UI |
+| `GET /health` | Health check with event count |
+| `GET /docs` | Interactive OpenAPI documentation |
+
+**Query parameters for `/api/events`:**
+- `h3_cell` or `location_name` (required, mutually exclusive)
+- `start_date`, `end_date` — date range filter
+- `categories`, `types` — category/type filter
+- `search` — full-text search query
+- `page`, `per_page` — pagination (max 100 per page)
+
+## Data Pipeline
 
 ```
-SCB Population Grid (1km²)
-    ↓ population_to_h3.sql
-H3 Population (r4, r5, r6)
-    ↓
-Police Events (events.parquet)
-    ↓ h3_aggregation.sql + population join
-H3 Events with Rates (events_rN.parquet)
-    ↓ h3_to_geojson.sql
-GeoJSONL (h3_rN.geojsonl.gz)
+Upstream: polisen-se-events-history (GitHub release)
+    ↓ make fetch-events
+events.parquet (100k+ police events, 2022-present)
+    ↓ municipality_aggregation.sql
+Municipality aggregates with category counts + type breakdown
+    ↓ GeoJSON export
+GeoJSONL (municipalities.geojsonl.gz)
     ↓ Tippecanoe
-PMTiles (h3_rN.pmtiles)
+PMTiles (municipalities.pmtiles)
     ↓
-Interactive Web Map
+Interactive web map
 ```
 
-### Frontend
-
-The frontend is vanilla JavaScript with no build step:
-- **MapLibre GL JS**: Map rendering with OSM base tiles
-- **PMTiles**: Client-side vector tile decoding
-- **Automatic Resolution**: Switches H3 resolution based on zoom level
-- **Display Modes**: Absolute counts or normalized rates per 10,000
-
-## Make Targets
+## Development
 
 ```bash
-make help              # Show all available targets
-make install           # Install dependencies
-make test              # Run all tests
-make test-unit         # Run unit tests only
-make test-e2e          # Run E2E browser tests
-make serve             # Start local server
-make check             # Linting and type checking
-make format            # Auto-format code
-make pipeline-all      # Build complete data pipeline
-make clean             # Remove generated files
+make test          # All tests with coverage
+make test-unit     # Unit tests only (fast)
+make test-e2e      # Playwright browser tests
+make check         # Lint (ruff) + type check (mypy)
+make format        # Auto-format code
+make help          # All available targets
+```
+
+## Deployment
+
+```bash
+make deploy        # Build container, upload, and deploy
+make deploy-status # Check production status
+make deploy-logs   # View container logs
 ```
 
 ## Data Sources
 
-- **Police Events**: [polisen.se/api/events](https://polisen.se/api/events) (2022-2025)
-- **Population Data**: [SCB Geospatial Statistics](https://geodata.scb.se) (1km² grid, 2024)
-
-## Known Limitations
-
-### City-Level Coordinates
-
-The Swedish Police API reports events at **city centroid coordinates** rather than actual incident locations. This means all events for Stockholm appear at a single point (59.33°N, 18.07°E), all Malmö events at another point, and so on.
-
-This affects H3 aggregation differently at each resolution:
-
-| City | Metro Pop | r6 Cell Pop | Coverage | Rate Inflation |
-|------|-----------|-------------|----------|----------------|
-| Stockholm | 975,000 | ~252,000 | 26% | ~3.9x |
-| Gothenburg | 608,000 | ~168,000 | 28% | ~3.6x |
-| Malmö | 352,000 | ~142,000 | 40% | ~2.5x |
-| Lund | 95,000 | ~22,000 | 23% | ~4.3x |
-
-At coarser resolutions (r4 ~1,100km², r5 ~250km²), cells are large enough to capture most of a metro area's population, so rates are reasonably accurate. At r6 (~60km²), the centroid cell contains only 23-40% of the metro population while receiving 100% of events, inflating apparent rates by 2.5-4.3x.
-
-**Current approach**: The frontend displays only r4 and r5. The backend generates r6 for potential future use if better coordinate data becomes available.
-
-**Future improvement**: Geocoding events to actual addresses would enable accurate fine-grained analysis.
-
-## Configuration
-
-Settings are managed via `config.toml`:
-
-```toml
-[aggregation]
-resolutions = [4, 5, 6]  # H3 resolutions to generate
-
-[duckdb]
-memory_limit = "4GB"
-threads = 4
-```
+- **Police Events**: [polisen-se-events-history](https://github.com/dnouri/polisen-se-events-history) — daily scrapes from polisen.se API
+- **Municipality Boundaries**: Swedish Land Survey (Lantmäteriet)
+- **Population Data**: Statistics Sweden (SCB), 2024
 
 ## License
 

@@ -650,13 +650,13 @@ static/
 
 ---
 
-## Phase 6: Municipality-Based Visualization ⏳ IN PROGRESS
+## Phase 6: Municipality-Based Visualization ✅ COMPLETE
 
 **Goal:** Replace H3 hexagonal cells with Swedish municipality boundaries for accurate visualization and rate calculations.
 
-**Estimated Duration:** ~8-10 hours
+**Duration:** ~10 hours (completed 2024-12-23)
 
-**Current Status:** Frontend migrated to municipality terminology. E2E tests adapted. Click-based test infrastructure needs work.
+**Outcome:** Full migration from H3 hexagons to Swedish municipality boundaries. 290 municipalities with official SCB population data. Choropleth visualization with population normalization and 5,000 minimum threshold. Stats-first UI flow with keyboard shortcuts.
 
 **Motivation:** Analysis revealed Swedish Police API reports locations ONLY at municipality (290) or county (21) level - never street/village level. H3 cells create artificial hotspots at centroids and miscalculate rates. Municipality boundaries are the correct geographic unit for this data.
 
@@ -930,44 +930,48 @@ events.parquet → JOIN by location_name → municipality_events.parquet → PMT
 - Same filter bar and event list components, reflowed for narrower width
 - Breakpoint: 768px (below = mobile)
 
-**Architecture:**
+**Architecture:** (Updated: Single-file approach per Phase 5 decision)
 ```
-static/
-├── components/
-│   ├── side-drawer.js       # Desktop (unchanged)
-│   ├── bottom-sheet.js      # NEW: Mobile container
-│   ├── drill-down-content.js # NEW: Shared content (extracted)
-│   ├── filter-bar.js        # Reflowed for mobile
-│   ├── event-list.js        # Unchanged
-│   └── event-detail.js      # Unchanged
+static/app.js  # All code in single file (no components/ directory)
+├── DrillDown object     # Desktop drawer container
+├── BottomSheet object   # NEW: Mobile container
+├── Shared render funcs  # NEW: Extracted pure functions
+│   ├── renderEventCard()
+│   ├── renderPagination()
+│   ├── renderFilterBar()
+│   └── renderEventList()
+└── Responsive detection # Switches container by viewport
 ```
+
+**Rationale:** Phase 5 chose single-file for simplicity (vanilla JS, no build step). Phase 7 follows same pattern - extract shared rendering as module-level functions, add BottomSheet object alongside DrillDown.
 
 ---
 
-### Task 7.1: Extract Shared Drill-Down Content
+### Task 7.1: Extract Shared Render Functions
 
-**Goal:** Refactor Phase 5 components to separate container from content.
+**Goal:** Refactor DrillDown to extract reusable render functions for sharing with BottomSheet.
 
-**Motivation:** Side drawer and bottom sheet share the same content (filters, list, detail). Extract shared logic to avoid duplication.
+**Motivation:** Side drawer and bottom sheet share the same content rendering. Extract pure render functions from DrillDown object to module level for reuse.
 
 **Deliverables:**
-- [ ] Create `static/components/drill-down-content.js`:
-  - Extracted filter bar, event list, event detail
-  - Accepts container element as parameter
-  - Handles all API calls and state management
-  - Container-agnostic (works in drawer or sheet)
+- [ ] Extract render functions from DrillDown to module level:
+  - `renderEventCard(event)` - Returns HTML string for event card
+  - `renderEventList(events, container)` - Renders event list to container
+  - `renderPagination(current, total, container)` - Renders pagination controls
+  - `renderFilterBar(state, container)` - Renders filter UI
 
-- [ ] Refactor `static/components/side-drawer.js`:
-  - Import and use drill-down-content
-  - Only handles drawer open/close, positioning
-  - Passes container to content component
+- [ ] Refactor DrillDown to use extracted functions:
+  - Call module-level render functions from DrillDown methods
+  - Keep container-specific logic (open/close/animation) in DrillDown
+  - Maintain existing state management in DrillDown
 
 - [ ] Ensure all existing E2E tests still pass after refactor
 
 **Acceptance Criteria:**
-- [ ] No functional changes to desktop experience
+- [ ] No functional changes to desktop experience (pure refactor)
 - [ ] All Phase 5 E2E tests pass
-- [ ] Clear separation of container vs content concerns
+- [ ] Render functions are pure (no side effects, no DOM queries)
+- [ ] Clear separation: DrillDown = container + state, functions = rendering
 
 ---
 

@@ -7,8 +7,10 @@ Wait Strategy: Uses explicit waits instead of time.sleep() for deterministic tes
 See tmp/spike_wait_discussion.md for rationale.
 """
 
+import re
+
 import pytest
-from playwright.sync_api import Page, expect
+from playwright.sync_api import Page, ViewportSize, expect
 
 # --- Wait Helper Functions ---
 # These replace arbitrary time.sleep() calls with explicit state checks.
@@ -1556,3 +1558,221 @@ class TestStatsFirstFlow:
         if result:
             page.click("#map canvas", position={"x": result["x"], "y": result["y"]}, force=True)
         return result  # type: ignore[no-any-return]
+
+
+# --- Shared Municipality Click Helper ---
+
+
+def find_and_click_municipality(page: Page) -> dict[str, float | str] | None:
+    """Find and click a municipality on the map.
+
+    Note: Filters for features with centroids inside the visible canvas,
+    then picks the one closest to center to ensure reliable clicks.
+    Returns the clicked feature data or None if no feature found.
+    """
+    result = page.evaluate("""
+        () => {
+            const canvas = document.querySelector('#map canvas');
+            const rect = canvas.getBoundingClientRect();
+            const width = rect.width;
+            const height = rect.height;
+
+            const features = window.map.queryRenderedFeatures({layers: ['municipalities']});
+            if (features.length === 0) return null;
+
+            // Find features with centroids inside the visible canvas
+            const visibleFeatures = [];
+            for (const feature of features) {
+                const geomType = feature.geometry.type;
+                let outerRing;
+
+                if (geomType === 'Polygon') {
+                    outerRing = feature.geometry.coordinates[0];
+                } else if (geomType === 'MultiPolygon') {
+                    outerRing = feature.geometry.coordinates[0][0];
+                } else {
+                    continue;
+                }
+
+                let sumX = 0, sumY = 0;
+                let validCoords = 0;
+                for (const coord of outerRing) {
+                    if (!Array.isArray(coord) || coord.length !== 2) continue;
+                    try {
+                        const point = window.map.project(coord);
+                        sumX += point.x;
+                        sumY += point.y;
+                        validCoords++;
+                    } catch (e) {}
+                }
+
+                if (validCoords === 0) continue;
+
+                const centroidX = sumX / validCoords;
+                const centroidY = sumY / validCoords;
+
+                const margin = 50;
+                if (centroidX >= margin && centroidX < (width - margin) &&
+                    centroidY >= margin && centroidY < (height - margin)) {
+                    visibleFeatures.push({
+                        x: centroidX,
+                        y: centroidY,
+                        kommun_namn: feature.properties.kommun_namn,
+                        total_count: feature.properties.total_count,
+                        rate_per_10000: feature.properties.rate_per_10000,
+                        distToCenter: Math.pow(centroidX - width/2, 2) +
+                                     Math.pow(centroidY - height/2, 2)
+                    });
+                }
+            }
+
+            if (visibleFeatures.length === 0) return null;
+
+            visibleFeatures.sort((a, b) => a.distToCenter - b.distToCenter);
+            const best = visibleFeatures[0];
+
+            return {
+                x: best.x,
+                y: best.y,
+                kommun_namn: best.kommun_namn,
+                total_count: best.total_count,
+                rate_per_10000: best.rate_per_10000
+            };
+        }
+    """)
+
+    if result:
+        page.click("#map canvas", position={"x": result["x"], "y": result["y"]}, force=True)
+    return result  # type: ignore[no-any-return]
+
+
+# --- Mobile Viewport Helpers ---
+# iPhone 12 viewport: 390x844 (below 768px breakpoint)
+MOBILE_VIEWPORT: ViewportSize = {"width": 390, "height": 844}
+DESKTOP_VIEWPORT: ViewportSize = {"width": 1280, "height": 800}
+
+
+def wait_for_bottom_sheet_open(page: Page, timeout: int = 5000) -> None:
+    """Wait for bottom sheet to open (mobile container)."""
+    page.wait_for_selector("[data-testid='bottom-sheet'].open", timeout=timeout)
+
+
+def wait_for_bottom_sheet_closed(page: Page, timeout: int = 5000) -> None:
+    """Wait for bottom sheet to close."""
+    page.wait_for_selector("[data-testid='bottom-sheet']:not(.open)", timeout=timeout)
+
+
+@pytest.mark.e2e
+@pytest.mark.mobile
+class TestMobileE2E:
+    """End-to-end tests for mobile viewport behavior.
+
+    These tests verify that on mobile viewports (<768px):
+    - Bottom sheet is used instead of side drawer
+    - Touch gestures work correctly
+    - Layout adapts for mobile screens
+    """
+
+    def test_mobile_viewport_shows_bottom_sheet_not_drawer(
+        self, page: Page, live_server: str
+    ) -> None:
+        """Test that mobile viewport uses bottom sheet instead of side drawer.
+
+        This is the fundamental test for responsive container switching.
+        On mobile viewports (<768px), clicking a municipality should open
+        a bottom sheet, not the side drawer.
+        """
+        # Set mobile viewport
+        page.set_viewport_size(MOBILE_VIEWPORT)
+        page.goto(f"{live_server}/static/index.html")
+        wait_for_map_ready(page)
+
+        # Verify we're in mobile mode by checking window width
+        viewport_width = page.evaluate("window.innerWidth")
+        assert viewport_width < 768, f"Expected mobile viewport, got {viewport_width}px"
+
+        # Bottom sheet element should exist but be hidden initially
+        bottom_sheet = page.locator("[data-testid='bottom-sheet']")
+        expect(bottom_sheet).to_be_attached()
+        expect(bottom_sheet).not_to_have_class("open")
+
+        # Side drawer should NOT be visible on mobile (hidden via CSS media query)
+        drawer = page.locator("[data-testid='drill-down-drawer']")
+        expect(drawer).not_to_be_visible()
+
+    def test_desktop_viewport_shows_drawer_not_bottom_sheet(
+        self, page: Page, live_server: str
+    ) -> None:
+        """Test that desktop viewport uses side drawer, not bottom sheet.
+
+        Verifies the inverse of mobile behavior - desktop should use drawer.
+        """
+        # Set desktop viewport
+        page.set_viewport_size(DESKTOP_VIEWPORT)
+        page.goto(f"{live_server}/static/index.html")
+        wait_for_map_ready(page)
+
+        # Verify we're in desktop mode
+        viewport_width = page.evaluate("window.innerWidth")
+        assert viewport_width >= 768, f"Expected desktop viewport, got {viewport_width}px"
+
+        # Drawer element should exist
+        drawer = page.locator("[data-testid='drill-down-drawer']")
+        expect(drawer).to_be_attached()
+
+        # Bottom sheet should either not exist or be hidden on desktop
+        bottom_sheet = page.locator("[data-testid='bottom-sheet']")
+        if bottom_sheet.count() > 0:
+            expect(bottom_sheet).not_to_be_visible()
+
+    def test_mobile_click_municipality_opens_bottom_sheet(
+        self, page: Page, live_server: str
+    ) -> None:
+        """On mobile, clicking a municipality should open bottom sheet, not drawer.
+
+        This is the core interaction test for mobile. When a user taps a
+        municipality on mobile, the bottom sheet should slide up to show
+        events, not the side drawer.
+        """
+        # Set mobile viewport
+        page.set_viewport_size(MOBILE_VIEWPORT)
+        page.goto(f"{live_server}/static/index.html")
+        wait_for_map_ready(page)
+        wait_for_tiles_rendered(page)
+
+        # Bottom sheet should not be open initially
+        bottom_sheet = page.locator("[data-testid='bottom-sheet']")
+        expect(bottom_sheet).not_to_have_class("open")
+
+        # Click a municipality
+        result = find_and_click_municipality(page)
+        assert result is not None, "Should find a municipality to click"
+
+        # Bottom sheet should open (not drawer)
+        wait_for_bottom_sheet_open(page)
+        expect(bottom_sheet).to_have_class(re.compile(r"\bopen\b"))
+
+        # Location should be displayed in bottom sheet header
+        sheet_location = page.locator("[data-testid='sheet-location']")
+        expect(sheet_location).to_be_visible()
+        expect(sheet_location).not_to_have_text("Events")  # Should show actual location
+
+    def test_mobile_bottom_sheet_close_button(self, page: Page, live_server: str) -> None:
+        """Bottom sheet close button should close the sheet."""
+        page.set_viewport_size(MOBILE_VIEWPORT)
+        page.goto(f"{live_server}/static/index.html")
+        wait_for_map_ready(page)
+        wait_for_tiles_rendered(page)
+
+        # Open bottom sheet
+        find_and_click_municipality(page)
+        wait_for_bottom_sheet_open(page)
+
+        # Click close button
+        close_button = page.locator("[data-testid='sheet-close']")
+        close_button.click()
+        wait_for_bottom_sheet_closed(page)
+
+        # Bottom sheet should be closed
+        bottom_sheet = page.locator("[data-testid='bottom-sheet']")
+        expect(bottom_sheet).not_to_have_class("open")

@@ -2,6 +2,7 @@
 data/*.parquet
 !data/test_*.parquet
 data/*.gpkg
+data/*.db
 data/tiles/
 
 # Municipality generated data (keep boundaries.geojson and population.csv)

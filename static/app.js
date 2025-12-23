@@ -79,7 +79,14 @@ let sourceLoaded = false;
 
 // Stats-first UI state
 let currentCellData = null;  // { locationName, properties }
-let viewState = 'none';      // 'none' | 'stats' | 'drawer'
+let viewState = 'none';      // 'none' | 'stats' | 'drawer' | 'sheet'
+
+/**
+ * Check if viewport is mobile (<768px).
+ */
+function isMobile() {
+    return window.innerWidth < 768;
+}
 
 // Make state accessible for E2E tests
 window.displayMode = 'absolute';
@@ -200,6 +207,56 @@ function getCategoryRate(props, categoryKey) {
 }
 
 /**
+ * Render category breakdown table HTML.
+ * Shared between stats panel and bottom sheet.
+ * @param {object} props - Feature properties with category counts
+ * @param {object} options - { showTotalRow: boolean }
+ * @returns {string} - HTML string for category breakdown
+ */
+function renderCategoryBreakdownTable(props, options = {}) {
+    const { showTotalRow = false } = options;
+
+    let html = '<div class="category-breakdown">';
+    html += '<h5>By Category</h5>';
+    html += '<table class="category-table">';
+    html += '<thead><tr>';
+    html += '<th scope="col">Category</th>';
+    html += '<th scope="col" class="num">Count</th>';
+    html += '<th scope="col" class="num">per 10k</th>';
+    html += '</tr></thead>';
+    html += '<tbody>';
+
+    let totalCount = 0;
+    for (const [key, name] of Object.entries(CONFIG.categories)) {
+        const count = props[`${key}_count`] || 0;
+        if (count > 0) {
+            totalCount += count;
+            const rate = getCategoryRate(props, key);
+            html += '<tr>';
+            html += `<td>${name}</td>`;
+            html += `<td class="num">${count.toLocaleString()}</td>`;
+            html += `<td class="num">${rate.toFixed(1)}</td>`;
+            html += '</tr>';
+        }
+    }
+    html += '</tbody>';
+
+    if (showTotalRow) {
+        const totalRate = getCurrentRate(props);
+        html += '<tfoot><tr class="total-row">';
+        html += '<td>Total</td>';
+        html += `<td class="num">${totalCount.toLocaleString()}</td>`;
+        html += `<td class="num">${totalRate.toFixed(1)}</td>`;
+        html += '</tr></tfoot>';
+    }
+
+    html += '</table>';
+    html += '</div>';
+
+    return html;
+}
+
+/**
  * Get color configuration for current display mode and category.
  * Single source of truth for both map paint and legend.
  */
@@ -314,6 +371,7 @@ function registerLayerEventHandlers() {
 /**
  * Show municipality details panel with stats and Search Events button.
  * Does NOT auto-open drill-down drawer (stats-first flow).
+ * On mobile, opens bottom sheet instead of stats panel.
  */
 function showMunicipalityDetails(props) {
     // Use kommun_namn from municipality tiles
@@ -324,6 +382,12 @@ function showMunicipalityDetails(props) {
         locationName: locationName,
         properties: props
     };
+
+    // Mobile: use bottom sheet
+    if (isMobile()) {
+        BottomSheet.open(locationName, props);
+        return;
+    }
 
     // If drawer is already open, update it directly (Option B behavior)
     if (viewState === 'drawer' && DrillDown && DrillDown.isOpen()) {
@@ -356,40 +420,7 @@ function showMunicipalityDetails(props) {
     html += `<span class="detail-value">${Math.round(population).toLocaleString()}</span>`;
     html += '</div>';
 
-    html += '<div class="category-breakdown">';
-    html += '<h5>By Category</h5>';
-    html += '<table class="category-table">';
-    html += '<thead><tr>';
-    html += '<th scope="col">Category</th>';
-    html += '<th scope="col" class="num">Count</th>';
-    html += '<th scope="col" class="num">per 10k</th>';
-    html += '</tr></thead>';
-    html += '<tbody>';
-
-    let totalCount = 0;
-    for (const [key, name] of Object.entries(CONFIG.categories)) {
-        const count = props[`${key}_count`] || 0;
-        if (count > 0) {
-            totalCount += count;
-            const rate = getCategoryRate(props, key);
-            html += '<tr>';
-            html += `<td>${name}</td>`;
-            html += `<td class="num">${count.toLocaleString()}</td>`;
-            html += `<td class="num">${rate.toFixed(1)}</td>`;
-            html += '</tr>';
-        }
-    }
-    html += '</tbody>';
-
-    const totalRate = getCurrentRate(props);
-    html += '<tfoot><tr class="total-row">';
-    html += '<td>Total</td>';
-    html += `<td class="num">${totalCount.toLocaleString()}</td>`;
-    html += `<td class="num">${totalRate.toFixed(1)}</td>`;
-    html += '</tr></tfoot>';
-
-    html += '</table>';
-    html += '</div>';
+    html += renderCategoryBreakdownTable(props, { showTotalRow: true });
 
     html += '<div class="search-events-action">';
     html += '<button id="search-events-button" data-testid="search-events-button" class="search-events-button">';
@@ -616,7 +647,9 @@ document.addEventListener('keydown', (e) => {
         }
 
         // Then handle based on view state
-        if (viewState === 'drawer' && DrillDown && DrillDown.isOpen()) {
+        if (viewState === 'sheet' && BottomSheet && BottomSheet.isOpen()) {
+            BottomSheet.close();
+        } else if (viewState === 'drawer' && DrillDown && DrillDown.isOpen()) {
             DrillDown.close();  // Returns to stats (Option A)
         } else if (viewState === 'stats') {
             hideCellDetails();
@@ -1217,10 +1250,189 @@ const DrillDown = {
 window.DrillDown = DrillDown;
 window.openDrillDown = (locationName, props) => DrillDown.open(locationName, props);
 
+// ============================================
+// BOTTOM SHEET MODULE (Mobile)
+// ============================================
+
+const BottomSheet = {
+    // State
+    currentLocationName: null,
+    cellProps: null,
+
+    // DOM Elements (cached on init)
+    elements: {},
+
+    /**
+     * Initialize bottom sheet functionality.
+     */
+    init() {
+        this.cacheElements();
+        this.bindEvents();
+    },
+
+    /**
+     * Cache DOM element references.
+     */
+    cacheElements() {
+        this.elements = {
+            sheet: document.getElementById('bottom-sheet'),
+            closeBtn: document.getElementById('sheet-close'),
+            location: document.getElementById('sheet-location'),
+            content: document.getElementById('sheet-content')
+        };
+    },
+
+    /**
+     * Bind event listeners.
+     */
+    bindEvents() {
+        // Close button
+        this.elements.closeBtn.addEventListener('click', () => this.close());
+
+        // Swipe-to-dismiss touch gesture
+        this.bindSwipeGesture();
+    },
+
+    /**
+     * Bind swipe-to-dismiss gesture for the bottom sheet.
+     * Users can swipe down on the sheet handle or header to dismiss.
+     */
+    bindSwipeGesture() {
+        const sheet = this.elements.sheet;
+        let startY = 0;
+        let currentY = 0;
+        let isDragging = false;
+
+        const handleTouchStart = (e) => {
+            startY = e.touches[0].clientY;
+            isDragging = true;
+            sheet.style.transition = 'none';
+        };
+
+        const handleTouchMove = (e) => {
+            if (!isDragging) return;
+            currentY = e.touches[0].clientY;
+            const deltaY = currentY - startY;
+
+            // Only allow dragging down (positive delta)
+            if (deltaY > 0) {
+                sheet.style.transform = `translateY(${deltaY}px)`;
+            }
+        };
+
+        const handleTouchEnd = () => {
+            if (!isDragging) return;
+            isDragging = false;
+            sheet.style.transition = 'transform 0.3s ease-out';
+
+            const deltaY = currentY - startY;
+            // Dismiss if dragged more than 100px down
+            if (deltaY > 100) {
+                this.close();
+            }
+            sheet.style.transform = '';
+            startY = 0;
+            currentY = 0;
+        };
+
+        // Attach to sheet handle and header for swipe gesture
+        const handle = sheet.querySelector('.sheet-handle');
+        const header = sheet.querySelector('.sheet-header');
+
+        [handle, header].forEach(el => {
+            if (el) {
+                el.addEventListener('touchstart', handleTouchStart, { passive: true });
+                el.addEventListener('touchmove', handleTouchMove, { passive: true });
+                el.addEventListener('touchend', handleTouchEnd, { passive: true });
+            }
+        });
+    },
+
+    /**
+     * Open bottom sheet for a specific municipality.
+     * @param {string} locationName - Municipality name for display
+     * @param {object} cellProps - Municipality properties
+     */
+    open(locationName, cellProps = null) {
+        this.currentLocationName = locationName;
+        this.cellProps = cellProps;
+
+        this.elements.location.textContent = locationName;
+        this.render(cellProps);
+        this.elements.sheet.classList.add('open');
+        viewState = 'sheet';
+    },
+
+    /**
+     * Close the bottom sheet.
+     */
+    close() {
+        this.elements.sheet.classList.remove('open');
+        this.elements.content.innerHTML = '';
+        this.elements.location.textContent = '';
+        this.currentLocationName = null;
+        this.cellProps = null;
+        viewState = 'none';
+        currentCellData = null;
+    },
+
+    /**
+     * Check if sheet is open.
+     */
+    isOpen() {
+        return this.elements.sheet.classList.contains('open');
+    },
+
+    /**
+     * Render content into the bottom sheet.
+     * @param {object} props - Municipality properties
+     */
+    render(props) {
+        if (!props) {
+            this.elements.content.innerHTML = '<p>No data available</p>';
+            return;
+        }
+
+        const population = props.population || 0;
+        const rate = getCurrentRate(props).toFixed(1);
+        const totalCount = props.total_count || 0;
+
+        let html = '<div class="sheet-stats">';
+        html += `<div class="stat-item"><span class="stat-value">${totalCount.toLocaleString()}</span><span class="stat-label">Events</span></div>`;
+        html += `<div class="stat-item"><span class="stat-value">${rate}</span><span class="stat-label">per 10k</span></div>`;
+        html += `<div class="stat-item"><span class="stat-value">${Math.round(population).toLocaleString()}</span><span class="stat-label">Population</span></div>`;
+        html += '</div>';
+
+        html += renderCategoryBreakdownTable(props);
+
+        html += '<div class="sheet-actions">';
+        html += '<button id="sheet-search-events" class="search-events-button" data-testid="sheet-search-events">Search Events →</button>';
+        html += '</div>';
+
+        this.elements.content.innerHTML = html;
+
+        // Bind search events button
+        document.getElementById('sheet-search-events').addEventListener('click', () => {
+            // Capture values before close() clears them
+            const locationName = this.currentLocationName;
+            const props = this.cellProps;
+            this.close();
+            DrillDown.open(locationName, props);
+            viewState = 'drawer';
+        });
+    }
+};
+
+// Expose for testing
+window.BottomSheet = BottomSheet;
+
 // Map load handler
 map.on('load', () => {
     // Initialize drill-down drawer
     DrillDown.init();
+
+    // Initialize bottom sheet (mobile)
+    BottomSheet.init();
 
     // Initialize mobile interactions
     initMobileInteractions();

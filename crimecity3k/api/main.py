@@ -119,10 +119,10 @@ def _mount_static_files(app: FastAPI, root_dir: Path) -> None:
     if data_dir.exists() and "/data" not in mounted_paths:
         app.mount("/data", StaticFiles(directory=data_dir), name="data")
 
-    # Mount static files LAST (catch-all for frontend SPA routing)
+    # Mount static files at /static
     static_dir = root_dir / "static"
-    if static_dir.exists() and "/" not in mounted_paths:
-        app.mount("/", StaticFiles(directory=static_dir, html=True), name="frontend")
+    if static_dir.exists() and "/static" not in mounted_paths:
+        app.mount("/static", StaticFiles(directory=static_dir, html=True), name="frontend")
 
 
 # API metadata for OpenAPI docs

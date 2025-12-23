@@ -42,10 +42,6 @@ make serve
 - Mobile: bottom sheet with touch-friendly controls
 - Keyboard shortcuts (`S` search, `Esc` close, `?` help)
 
-**Privacy Protection**
-- Hides individual event details when fewer than 3 events in a region
-- Aggregate counts still visible on map
-
 ## Architecture
 
 ```

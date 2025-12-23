@@ -15,9 +15,6 @@ from crimecity3k.api.categories import CATEGORY_TYPES, get_category
 # H3 cell ID pattern: 15 hex characters
 H3_CELL_PATTERN = re.compile(r"^[0-9a-fA-F]{15}$")
 
-# Privacy threshold: minimum events for drill-down
-PRIVACY_THRESHOLD = 3
-
 
 def is_valid_h3_cell(h3_cell: str) -> bool:
     """Check if string is a valid H3 cell ID.
@@ -126,15 +123,6 @@ def query_events(
     """
     result = conn.execute(count_sql, params).fetchone()
     total: int = result[0] if result else 0
-
-    # Privacy threshold check
-    if total < PRIVACY_THRESHOLD and total > 0:
-        return {
-            "total": total,
-            "page": page,
-            "per_page": per_page,
-            "events": [],  # Don't return individual events below threshold
-        }
 
     # Calculate offset
     offset = (page - 1) * per_page

@@ -743,7 +743,6 @@ const DrillDown = {
             categoryChips: document.querySelectorAll('.category-chips .filter-chip'),
             typeExpansion: document.getElementById('type-expansion'),
             loadingSpinner: document.getElementById('loading-spinner'),
-            thresholdMessage: document.getElementById('threshold-message'),
             eventList: document.getElementById('event-list'),
             emptyState: document.getElementById('empty-state'),
             errorState: document.getElementById('error-state'),
@@ -1125,12 +1124,11 @@ const DrillDown = {
     },
 
     /**
-     * Show a specific state (loading, threshold, events, empty, error).
+     * Show a specific state (loading, events, empty, error).
      */
     showState(state) {
         // Hide all states
         this.elements.loadingSpinner.classList.remove('visible');
-        this.elements.thresholdMessage.classList.remove('visible');
         this.elements.eventList.classList.remove('visible');
         this.elements.emptyState.classList.remove('visible');
         this.elements.errorState.classList.remove('visible');
@@ -1139,9 +1137,6 @@ const DrillDown = {
         switch (state) {
             case 'loading':
                 this.elements.loadingSpinner.classList.add('visible');
-                break;
-            case 'threshold':
-                this.elements.thresholdMessage.classList.add('visible');
                 break;
             case 'events':
                 this.elements.eventList.classList.add('visible');
@@ -1161,12 +1156,6 @@ const DrillDown = {
      */
     renderEvents(data) {
         const { events, total, page, per_page } = data;
-
-        // Check threshold (total > 0 but events empty means below threshold)
-        if (total > 0 && events.length === 0) {
-            this.showState('threshold');
-            return;
-        }
 
         // Empty state
         if (total === 0) {

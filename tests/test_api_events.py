@@ -300,36 +300,6 @@ class TestQueryEventsEdgeCases:
         assert response.status_code == 422  # Validation error
 
 
-class TestQueryEventsThreshold:
-    """Tests for privacy threshold enforcement."""
-
-    def test_query_events_cell_under_threshold_returns_limited_response(
-        self, client: TestClient, events_db: duckdb.DuckDBPyConnection
-    ) -> None:
-        """Cells with <3 events should return limited response."""
-        # Find a cell with 1-2 events
-        result = events_db.execute("""
-            SELECT h3_cell, COUNT(*) as cnt
-            FROM events
-            GROUP BY h3_cell
-            HAVING cnt < 3 AND cnt > 0
-            LIMIT 1
-        """).fetchone()
-
-        if result is None:
-            pytest.skip("No cells with 1-2 events in test fixture")
-
-        sparse_cell = result[0]
-        response = client.get(f"/api/events?h3_cell={sparse_cell}")
-        data = response.json()
-
-        # Should return count but not individual events
-        assert data["total"] < 3
-        assert data["total"] > 0
-        # Events list should be empty (privacy threshold)
-        assert data["events"] == []
-
-
 class TestTypesEndpoint:
     """Tests for the types hierarchy endpoint."""
 

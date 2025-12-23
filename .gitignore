@@ -2,8 +2,12 @@
 data/*.parquet
 !data/test_*.parquet
 data/*.gpkg
-data/h3/
+data/*.db
 data/tiles/
+
+# Municipality generated data (keep boundaries.geojson and population.csv)
+data/municipalities/*.parquet
+data/municipalities/*.geojsonl.gz
 
 # Generated test fixtures (created by make test-fixtures)
 tests/fixtures/data/tiles/

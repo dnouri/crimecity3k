@@ -35,10 +35,6 @@
                 </label>
             </label>
         </div>
-
-        <div class="resolution-indicator">
-            H3: <span id="current-resolution">-</span>
-        </div>
     </div>
 
     <div id="legend">
@@ -144,6 +140,20 @@
             <button id="pagination-prev" data-testid="pagination-prev" disabled>&larr; Prev</button>
             <span id="page-info" data-testid="page-info">Page 1 of 1</span>
             <button id="pagination-next" data-testid="pagination-next">Next &rarr;</button>
+        </div>
+    </div>
+
+    <!-- Bottom sheet for mobile (hidden on desktop) -->
+    <div id="bottom-sheet" class="bottom-sheet" data-testid="bottom-sheet"
+         role="dialog" aria-modal="true" aria-labelledby="sheet-location">
+        <div class="sheet-handle" aria-hidden="true"></div>
+        <div class="sheet-header">
+            <h2 id="sheet-location" data-testid="sheet-location">Events</h2>
+            <button id="sheet-close" class="sheet-close" data-testid="sheet-close"
+                    aria-label="Close bottom sheet">&times;</button>
+        </div>
+        <div class="sheet-content" id="sheet-content">
+            <!-- Content will be rendered here by BottomSheet.render() -->
         </div>
     </div>
 

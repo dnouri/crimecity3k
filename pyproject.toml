@@ -39,6 +39,7 @@ markers = [
     "integration: marks tests as integration tests (may be slow)",
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
     "e2e: marks tests as end-to-end tests requiring a browser",
+    "mobile: marks tests for mobile viewport behavior",
 ]
 
 [tool.ruff]

@@ -111,14 +111,6 @@ body {
     transform: translateX(20px);
 }
 
-.resolution-indicator {
-    font-size: 12px;
-    color: #666;
-    margin-top: 8px;
-    padding-top: 8px;
-    border-top: 1px solid #e0e0e0;
-}
-
 /* Legend */
 #legend {
     position: absolute;
@@ -155,6 +147,20 @@ body {
 
 .legend-label {
     color: #555;
+}
+
+.legend-footnote {
+    display: flex;
+    align-items: center;
+    margin-top: 8px;
+    padding-top: 6px;
+    border-top: 1px dashed #ccc;
+    font-style: italic;
+}
+
+.legend-footnote .legend-label {
+    color: #888;
+    font-size: 11px;
 }
 
 .legend-footer {
@@ -253,6 +259,16 @@ body {
     color: #333;
 }
 
+.rate-warning {
+    padding: 4px 8px;
+    margin: 4px 0;
+    background: #fff3cd;
+    border-left: 3px solid #ffc107;
+    color: #856404;
+    font-size: 11px;
+    font-style: italic;
+}
+
 .category-breakdown {
     margin-top: 12px;
 }
@@ -264,49 +280,39 @@ body {
     text-transform: uppercase;
 }
 
-.category-bar {
-    display: flex;
-    align-items: center;
-    margin-bottom: 4px;
+.category-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
 }
 
-.category-name {
-    width: 90px;
-    font-size: 12px;
-    color: #555;
+.category-table th,
+.category-table td {
+    padding: 4px 0;
+    text-align: left;
 }
 
-.category-count {
-    font-size: 12px;
-    color: #333;
+.category-table th {
+    color: #888;
     font-weight: 500;
+    border-bottom: 1px solid #e0e0e0;
+    padding-bottom: 6px;
 }
 
-.top-types {
-    margin-top: 12px;
+.category-table th.num,
+.category-table td.num {
+    text-align: right;
 }
 
-.top-types h5 {
-    margin: 0 0 8px 0;
-    font-size: 12px;
-    color: #666;
-    text-transform: uppercase;
-}
-
-.type-item {
-    display: flex;
-    justify-content: space-between;
-    padding: 3px 0;
-    font-size: 12px;
-}
-
-.type-name {
-    color: #555;
-}
-
-.type-count {
+.category-table tbody td {
     color: #333;
-    font-weight: 500;
+}
+
+.category-table tfoot .total-row td {
+    font-weight: 600;
+    color: #333;
+    border-top: 1px solid #e0e0e0;
+    padding-top: 6px;
 }
 
 /* Search Events button in stats panel */
@@ -1044,4 +1050,187 @@ kbd {
     border: 1px solid #dee2e6;
     border-radius: 4px;
     box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+/* ============================================
+   BOTTOM SHEET (Mobile-only)
+   ============================================ */
+
+.bottom-sheet {
+    display: none;
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: white;
+    border-radius: 16px 16px 0 0;
+    box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.15);
+    z-index: 100;
+    transform: translateY(100%);
+    transition: transform 0.3s ease-out;
+    max-height: 90vh;
+}
+
+.bottom-sheet.open {
+    transform: translateY(0);
+}
+
+.sheet-handle {
+    width: 36px;
+    height: 4px;
+    background: #dee2e6;
+    border-radius: 2px;
+    margin: 12px auto 8px;
+}
+
+.sheet-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 16px 12px;
+    border-bottom: 1px solid #e9ecef;
+}
+
+.sheet-header h2 {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 600;
+    color: #212529;
+}
+
+.sheet-close {
+    background: none;
+    border: none;
+    font-size: 24px;
+    cursor: pointer;
+    color: #6c757d;
+    padding: 4px 8px;
+    border-radius: 4px;
+}
+
+.sheet-close:hover {
+    background: #e9ecef;
+    color: #212529;
+}
+
+.sheet-content {
+    padding: 16px;
+    overflow-y: auto;
+    max-height: calc(90vh - 80px);
+}
+
+/* Sheet stats grid */
+.sheet-stats {
+    display: flex;
+    justify-content: space-around;
+    padding: 16px 0;
+    margin-bottom: 16px;
+    border-bottom: 1px solid #e9ecef;
+}
+
+.sheet-stats .stat-item {
+    text-align: center;
+}
+
+.sheet-stats .stat-value {
+    display: block;
+    font-size: 24px;
+    font-weight: 700;
+    color: #212529;
+}
+
+.sheet-stats .stat-label {
+    display: block;
+    font-size: 12px;
+    color: #6c757d;
+    margin-top: 4px;
+}
+
+/* Sheet actions */
+.sheet-actions {
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid #e9ecef;
+}
+
+.sheet-actions .search-events-button {
+    width: 100%;
+    padding: 14px 20px;
+    font-size: 16px;
+    font-weight: 600;
+    background: #1976d2;
+    color: white;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    touch-action: manipulation;
+}
+
+.sheet-actions .search-events-button:active {
+    background: #1565c0;
+}
+
+/* ============================================
+   RESPONSIVE: Mobile Layout (≤768px)
+   ============================================ */
+
+@media (max-width: 768px) {
+    /* Show bottom sheet on mobile */
+    .bottom-sheet {
+        display: block;
+    }
+
+    /* Hide drawer on mobile by default */
+    .drill-down-drawer {
+        display: none;
+    }
+
+    /* Show drawer as fullscreen modal on mobile when open */
+    .drill-down-drawer.open {
+        display: flex !important;
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        width: 100%;
+        height: 100%;
+        border-radius: 0;
+        z-index: 2000;
+    }
+
+    /* Hide desktop cell-details panel on mobile */
+    #cell-details {
+        display: none !important;
+    }
+
+    /* Adjust controls for mobile */
+    #controls {
+        z-index: 50;
+    }
+
+    /* When sheet is open, lower controls z-index */
+    .bottom-sheet.open ~ #controls,
+    body:has(.bottom-sheet.open) #controls {
+        z-index: 0;
+    }
+
+    /* Simplified mobile controls */
+    #controls {
+        top: auto;
+        bottom: 120px;
+        left: 10px;
+        right: auto;
+        padding: 8px 12px;
+    }
+
+    /* Smaller legend on mobile */
+    #legend {
+        font-size: 11px;
+        max-width: 140px;
+        max-height: 35vh;
+        overflow-y: auto;
+        top: 10px;
+        bottom: auto;
+    }
 }

@@ -33,7 +33,8 @@ def is_valid_h3_cell(h3_cell: str) -> bool:
 
 def query_events(
     conn: duckdb.DuckDBPyConnection,
-    h3_cell: str,
+    h3_cell: str | None = None,
+    location_name: str | None = None,
     start_date: date | None = None,
     end_date: date | None = None,
     categories: list[str] | None = None,
@@ -42,11 +43,12 @@ def query_events(
     page: int = 1,
     per_page: int = 50,
 ) -> dict[str, Any]:
-    """Query events within an H3 cell with filtering and pagination.
+    """Query events within an H3 cell or location with filtering and pagination.
 
     Args:
         conn: DuckDB connection with events table and FTS index
-        h3_cell: H3 cell ID to query
+        h3_cell: H3 cell ID to query (mutually exclusive with location_name)
+        location_name: Municipality/location name to query (case-insensitive)
         start_date: Optional filter for events on or after this date
         end_date: Optional filter for events before this date
         categories: Optional list of categories to filter by
@@ -59,14 +61,26 @@ def query_events(
         Dict with total count, page info, and list of events
 
     Raises:
-        ValueError: If h3_cell is invalid
+        ValueError: If neither h3_cell nor location_name provided, or if both provided
     """
-    if not is_valid_h3_cell(h3_cell):
-        raise ValueError(f"Invalid H3 cell ID: {h3_cell}")
+    # Validate: exactly one of h3_cell or location_name must be provided
+    if h3_cell and location_name:
+        raise ValueError("Cannot specify both h3_cell and location_name")
+    if not h3_cell and not location_name:
+        raise ValueError("Must specify either h3_cell or location_name")
 
     # Build WHERE conditions and parameters
-    conditions = ["h3_cell = ?"]
-    params: list[Any] = [h3_cell]
+    conditions: list[str] = []
+    params: list[Any] = []
+
+    if h3_cell:
+        if not is_valid_h3_cell(h3_cell):
+            raise ValueError(f"Invalid H3 cell ID: {h3_cell}")
+        conditions.append("h3_cell = ?")
+        params.append(h3_cell)
+    elif location_name:
+        conditions.append("LOWER(location_name) = LOWER(?)")
+        params.append(location_name)
 
     if start_date:
         conditions.append("datetime >= ?")

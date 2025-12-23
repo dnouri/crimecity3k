@@ -1149,16 +1149,33 @@ class TestMobileE2E:
 
 ## Phase 8: Container Deployment
 
-**Goal:** Deploy the application using containerized deployment with zero-downtime updates.
+**Goal:** Deploy the application using containerized deployment with daily automated updates from upstream data.
 
-**Estimated Duration:** ~4-5 hours
+**Estimated Duration:** ~6-8 hours
 
-**Approach:** Follow proven deployment patterns: Podman containers, systemd user services, Makefile automation. Caddy reverse proxy managed separately on server.
+**Approach:** Two phases:
+1. **Manual first (Tasks 8.0-8.4):** Get `make deploy` working from laptop
+2. **Automate (Task 8.5):** Add GitHub Actions workflow for daily deployment
 
-**Target Server:** Configure `DEPLOY_SERVER` in Makefile (e.g., `user@server`)
-- Assumes Ubuntu 24.04 or similar with Podman and Caddy pre-installed
-- Port 8000 may be in use by other applications
-- CrimeCity3K will use port **8001** to avoid conflicts
+**Data Flow:**
+```
+polisen-se-events-history          crimecity3k
+┌────────────────────────┐         ┌──────────────────────────────────────┐
+│ Daily 04:15 UTC        │         │ Daily ~04:30 UTC (after upstream)    │
+│ ┌────────────────────┐ │         │ ┌──────────────────────────────────┐ │
+│ │ release-parquet.yml│ │ ───────►│ │ .github/workflows/deploy.yml     │ │
+│ │ - export events    │ │ trigger │ │ - download events.parquet        │ │
+│ │ - create release   │ │         │ │ - run pipeline (aggregation)     │ │
+│ └────────────────────┘ │         │ │ - build container                │ │
+│          ▼             │         │ │ - SCP to nv-network:8001        │ │
+│ data-latest/           │         │ │ - deploy container               │ │
+│   events.parquet       │         │ └──────────────────────────────────┘ │
+└────────────────────────┘         └──────────────────────────────────────┘
+```
+
+**Target Server:** daniel@nv-network (same as aviation-anomaly)
+- Shared infrastructure with aviation-anomaly (Podman, Caddy, systemd)
+- CrimeCity3K uses port **8001** (aviation-anomaly uses 8000)
 
 **Architecture:**
 ```
@@ -1166,15 +1183,16 @@ Containerfile
 ├── Base: python:3.13-slim
 ├── System deps: curl, ca-certificates
 ├── Install: uv via pip, then uv pip install --system
-├── Copy: source code, static files, data
+├── Copy: source code, static files, data (baked in)
 ├── Expose: 8000 (internal), mapped to 8001 on host
 └── CMD: uvicorn with --proxy-headers for Caddy
 
 Makefile targets:
+├── fetch-events        # NEW: Download events.parquet from GitHub release
 ├── build-container     # Build image with git SHA tag
 ├── upload-container    # SCP tarball to server, load image
 ├── deploy-container    # Stop old, start new, verify health
-├── deploy             # All three in sequence
+├── deploy             # fetch-events → pipeline → build → upload → deploy
 ├── deploy-status      # Check running container
 ├── deploy-logs        # Tail container logs
 └── install-service    # Copy systemd service file
@@ -1186,6 +1204,42 @@ Server stack (shared infrastructure):
 ├── Systemd user session (lingering enabled)
 └── SSH access configured
 ```
+
+---
+
+### Task 8.0: Fetch Events from GitHub Release
+
+**Goal:** Download events.parquet from the polisen-se-events-history GitHub release.
+
+**Motivation:** CrimeCity3K depends on data from a separate repository. This task establishes the cross-repo data dependency and ensures reproducible builds.
+
+**Deliverables:**
+- [ ] Add `EVENTS_PARQUET_URL` variable to Makefile:
+  ```makefile
+  EVENTS_PARQUET_URL := https://github.com/dnouri/polisen-se-events-history/releases/download/data-latest/events.parquet
+  ```
+
+- [ ] Add `fetch-events` target:
+  ```makefile
+  $(DATA_DIR)/events.parquet:
+  	@echo "Downloading events.parquet from GitHub release..."
+  	@mkdir -p $(DATA_DIR)
+  	curl -L -o $@ $(EVENTS_PARQUET_URL)
+  	@echo "✓ Downloaded: $@ ($$(du -h $@ | cut -f1))"
+
+  fetch-events: $(DATA_DIR)/events.parquet ## Download events.parquet from upstream
+  ```
+
+- [ ] Verify downloaded file is valid Parquet:
+  ```makefile
+  	@uv run python -c "import duckdb; print(f'Events: {duckdb.query(\"SELECT COUNT(*) FROM read_parquet(\\\"$@\\\")\").fetchone()[0]:,}')"
+  ```
+
+**Acceptance Criteria:**
+- [ ] `make fetch-events` downloads events.parquet (~11MB)
+- [ ] File is valid Parquet with expected schema
+- [ ] Re-running uses cached file (idempotent)
+- [ ] `make clean` removes the file
 
 ---
 
@@ -1464,31 +1518,101 @@ Server stack (shared infrastructure):
 
 ---
 
-### Task 8.5: CI/CD Integration (Optional)
+### Task 8.5: Daily Automated Deployment
 
-**Goal:** Automate deployment on push to main branch.
+**Goal:** Automate daily deployment triggered by upstream data release.
 
-**Motivation:** Continuous deployment reduces manual steps and ensures latest code is live.
+**Motivation:** CrimeCity3K should automatically update when polisen-se-events-history publishes new data. Daily automation ensures the map always shows fresh data without manual intervention.
+
+**Trigger Strategy:**
+- **Primary:** `workflow_dispatch` with `repository_dispatch` event from upstream
+- **Fallback:** Scheduled cron at 04:30 UTC (15 min after upstream release at 04:15)
+- **Manual:** Can always trigger via GitHub Actions UI
 
 **Deliverables:**
-- [ ] Add GitHub Actions workflow `deploy.yml`:
-  - Trigger on push to main
-  - Build container in CI
-  - Upload to server via SSH
-  - Deploy container
-  - Verify health check
+- [ ] Create `.github/workflows/deploy.yml`:
+  ```yaml
+  name: Daily Deploy
 
-- [ ] Configure secrets:
-  - SSH private key
-  - Server hostname
-  - Deploy user
+  on:
+    schedule:
+      # Run at 04:30 UTC daily (15 min after upstream release)
+      - cron: '30 4 * * *'
+    workflow_dispatch:
+      # Allow manual trigger
+    repository_dispatch:
+      # Allow trigger from polisen-se-events-history (future enhancement)
+      types: [data-updated]
+
+  jobs:
+    deploy:
+      runs-on: ubuntu-latest
+      steps:
+        - uses: actions/checkout@v4
+
+        - name: Install uv
+          uses: astral-sh/setup-uv@v4
+
+        - name: Install Tippecanoe
+          run: |
+            sudo apt-get update
+            sudo apt-get install -y tippecanoe
+
+        - name: Fetch events.parquet
+          run: make fetch-events
+
+        - name: Run pipeline (aggregation + tiles)
+          run: make pipeline-all
+
+        - name: Build container
+          run: make build-container
+
+        - name: Upload and deploy to server
+          env:
+            DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+            DEPLOY_SERVER: ${{ secrets.DEPLOY_SERVER }}
+          run: |
+            # Setup SSH key
+            mkdir -p ~/.ssh
+            echo "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+            chmod 600 ~/.ssh/deploy_key
+            ssh-add ~/.ssh/deploy_key
+
+            # Deploy
+            make upload-container deploy-container
+
+        - name: Verify deployment
+          run: |
+            sleep 10  # Wait for container startup
+            curl -f https://${{ secrets.DEPLOY_DOMAIN }}/health
+  ```
+
+- [ ] Configure GitHub secrets:
+  - `DEPLOY_SSH_KEY`: Private key for server access
+  - `DEPLOY_SERVER`: `user@hostname`
+  - `DEPLOY_DOMAIN`: Public domain for health check
 
 - [ ] Add deployment status badge to README
 
+- [ ] (Optional future enhancement) Add repository_dispatch trigger to polisen-se-events-history:
+  ```yaml
+  # In polisen-se-events-history release-parquet.yml, add after release step:
+  - name: Trigger downstream deployments
+    uses: peter-evans/repository-dispatch@v3
+    with:
+      token: ${{ secrets.DISPATCH_TOKEN }}
+      repository: dnouri/crimecity3k
+      event-type: data-updated
+  ```
+
 **Acceptance Criteria:**
-- [ ] Push to main triggers deployment
-- [ ] Deployment failure notifies maintainer
-- [ ] Rollback possible by reverting commit
+- [ ] Daily cron triggers deployment at 04:30 UTC
+- [ ] Fresh events.parquet downloaded from upstream release
+- [ ] Pipeline regenerates tiles with new data
+- [ ] Container deployed with updated data
+- [ ] Health check passes after deployment
+- [ ] Deployment failure notifies maintainer (GitHub Actions default)
+- [ ] Manual trigger available via GitHub Actions UI
 
 ---
 
@@ -1651,7 +1775,7 @@ CrimeCity3K v2 is complete when:
 - ✅ Phase 5: Event drill-down (59 tests, desktop side drawer, FastAPI backend)
 - ⏳ Phase 6: Municipality visualization (frontend migrated, e2e tests adapted, 9/44 pass)
 - ⏳ Phase 7: Mobile adaptation (bottom sheet, gestures)
-- ⏳ Phase 8: Container deployment (Podman, systemd)
+- ⏳ Phase 8: Container deployment (manual + daily automated)
 - ⏳ Phase 9: Documentation & polish
 
 **Architecture Evolution:**
@@ -1659,12 +1783,24 @@ CrimeCity3K v2 is complete when:
 - v2 (Phases 5-6): Hybrid static + dynamic API, municipality-based visualization
 - v3 (Phases 7-9): Mobile support, deployment, polish
 
+**Data Pipeline Architecture:**
+```
+polisen-se-events-history (upstream)     crimecity3k (this repo)
+┌──────────────────────────────┐         ┌───────────────────────────────────┐
+│ Daily 04:15 UTC              │         │ Daily 04:30 UTC                   │
+│ - Scrape polisen.se/api      │         │ - Fetch events.parquet            │
+│ - Export to events.parquet   │ ──────► │ - Run aggregation pipeline        │
+│ - Create GitHub release      │         │ - Build container with data       │
+│   (data-latest tag)          │         │ - Deploy to nv-network:8001       │
+└──────────────────────────────┘         └───────────────────────────────────┘
+```
+
 **Current Progress:** 5.5/9 phases complete (~61%)
 
 **Estimated Remaining:** ~18-24 hours
 - Phase 6: 4-6h (fix click-based e2e tests, documentation)
 - Phase 7: 6-8h (mobile adaptation)
-- Phase 8: 4-5h (deployment)
+- Phase 8: 4-5h (deployment - manual first, then automate)
 - Phase 9: 3-4h (documentation)
 
-**Next Step:** Fix click-based e2e test infrastructure or Phase 6.5 documentation tasks
+**Next Step:** Implement Task 8.0 (`make fetch-events` target) to start manual deployment workflow

@@ -2,6 +2,8 @@
 
 **Project Goal:** Interactive web map visualizing Swedish police events (2022-2025) aggregated to Swedish municipality boundaries with population normalization.
 
+**Note:** The project originally used H3 hexagonal cells but migrated to municipality boundaries in Phase 6. H3-related code (Phases 1-3) has been removed. The historical phase documentation below is retained for reference but the code is no longer present.
+
 **Development Approach:** Test-Driven Development (TDD) with red-green-refactor cycles, SQL-driven pipeline with qck templates, Pydantic config management.
 
 **Test Fixture:** Week of 2024-01-15 to 2024-01-22 (476 events, 51 types, 154 locations) - representative sample from middle of dataset.
@@ -34,9 +36,11 @@
 
 ---
 
-## Phase 1: Population Data Pipeline ✅ COMPLETE
+## Phase 1: Population Data Pipeline ✅ COMPLETE ⚠️ ARCHIVED (H3 removed)
 
 **Goal:** Download SCB population data, convert to H3 cells, establish SQL-driven pattern.
+
+> **⚠️ ARCHIVED:** This phase was superseded by Phase 6 (municipality-based visualization). The H3 population conversion code (`h3_processing.py`, `population_to_h3.sql`) has been removed. Municipality population is now sourced directly from SCB and committed to `data/municipalities/population.csv`.
 
 **Duration:** ~4 hours
 
@@ -70,9 +74,11 @@
 
 ---
 
-## Phase 2: H3 Event Aggregation with Category Filtering ✅ COMPLETE
+## Phase 2: H3 Event Aggregation with Category Filtering ✅ COMPLETE ⚠️ ARCHIVED (H3 removed)
 
 **Goal:** Aggregate crime events to H3 cells with population normalization and category-based filtering. Implements variant 3B architecture.
+
+> **⚠️ ARCHIVED:** This phase was superseded by Phase 6. The H3 aggregation code (`h3_aggregation.sql`, `aggregate_events_to_h3()`) has been removed. Event aggregation now uses municipality boundaries via `municipality_aggregation.sql` and `aggregate_events_to_municipalities()`.
 
 **Duration:** ~5 hours
 
@@ -149,9 +155,11 @@
 
 ---
 
-## Phase 3: GeoJSON Export and PMTiles Generation ✅ COMPLETE
+## Phase 3: GeoJSON Export and PMTiles Generation ✅ COMPLETE ⚠️ ARCHIVED (H3 removed)
 
 **Goal:** Export H3 aggregations to GeoJSON and generate PMTiles for web consumption.
+
+> **⚠️ ARCHIVED:** This phase was superseded by Phase 6. The H3 tile generation code (`tile_generation.py`, `pmtiles.py`, `h3_to_geojson.sql`) has been removed. Tile generation now uses municipality boundaries via `municipality_tiles.py` with `export_municipalities_to_geojsonl()` and `generate_municipality_pmtiles()`.
 
 **Duration:** ~3 hours
 

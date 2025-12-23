@@ -98,7 +98,7 @@ serve: ## Start local development server at http://localhost:8080
 	uv run python -m crimecity3k.api.main --port 8080
 
 clean: ## Remove generated files and caches
-	rm -rf $(H3_DIR) $(TILES_DIR)
+	rm -rf $(TILES_DIR)
 	rm -f $(DATA_DIR)/events.parquet
 	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
 	find . -type d -name .pytest_cache -exec rm -rf {} + 2>/dev/null || true
@@ -179,9 +179,10 @@ $(TILES_DIR)/municipalities.geojsonl.gz: $(MUNI_DIR)/events.parquet \
 	@echo "✓ GeoJSONL export complete: $@ ($$(du -h $@ | cut -f1))"
 
 # Generate PMTiles from municipality GeoJSONL
-$(TILES_DIR)/municipalities.pmtiles: $(TILES_DIR)/municipalities.geojsonl.gz
+# Output to pmtiles/ subdirectory to match API mount path
+$(TILES_DIR)/pmtiles/municipalities.pmtiles: $(TILES_DIR)/municipalities.geojsonl.gz
 	@echo "═══ Generating municipality PMTiles ═══"
-	@mkdir -p $(TILES_DIR)
+	@mkdir -p $(TILES_DIR)/pmtiles
 	uv run python -c "from pathlib import Path; \
 		from crimecity3k.municipality_tiles import generate_municipality_pmtiles; \
 		generate_municipality_pmtiles(Path('$<'), Path('$@'))"
@@ -195,9 +196,9 @@ pipeline-geojson: $(TILES_DIR)/municipalities.geojsonl.gz
 
 # Convenience target: Build PMTiles
 .PHONY: pipeline-pmtiles
-pipeline-pmtiles: $(TILES_DIR)/municipalities.pmtiles
+pipeline-pmtiles: $(TILES_DIR)/pmtiles/municipalities.pmtiles
 	@echo "═══ PMTiles generation pipeline complete ═══"
-	@echo "  Municipalities: $(TILES_DIR)/municipalities.pmtiles ($$(du -h $(TILES_DIR)/municipalities.pmtiles | cut -f1))"
+	@echo "  Municipalities: $(TILES_DIR)/pmtiles/municipalities.pmtiles ($$(du -h $(TILES_DIR)/pmtiles/municipalities.pmtiles | cut -f1))"
 
 # Convenience target: Build complete pipeline (municipalities + tiles)
 .PHONY: pipeline-all

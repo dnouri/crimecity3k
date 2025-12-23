@@ -80,7 +80,7 @@ format: ## Auto-format code with ruff
 	@echo "✓ Code formatted"
 
 test: ## Run all tests with coverage
-	uv run pytest tests/ -n auto --cov=crimecity3k --cov-report=html --cov-report=term
+	uv run pytest tests/ -n auto --dist loadscope --cov=crimecity3k --cov-report=html --cov-report=term
 
 test-unit: ## Run unit tests only (fast, no browser)
 	uv run pytest tests/ -v -n auto -m "not e2e" --cov=crimecity3k --cov-report=term

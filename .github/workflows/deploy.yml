@@ -4,7 +4,7 @@
 # Triggers:
 # - Daily at 04:30 UTC (15 min after upstream polisen-se-events-history release)
 # - Manual via workflow_dispatch
-# - On push to main branch (for testing deployment changes)
+# - On push to master branch (for testing deployment changes)
 # - repository_dispatch from upstream (future enhancement)
 #
 # Required secrets:
@@ -25,7 +25,7 @@ on:
     # Allow trigger from polisen-se-events-history (future enhancement)
     types: [data-updated]
   push:
-    branches: [main]
+    branches: [master]
     paths:
       # Only deploy on changes to deployment-related files
       - 'Containerfile'

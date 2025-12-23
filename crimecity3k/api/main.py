@@ -109,24 +109,20 @@ def _mount_static_files(app: FastAPI, root_dir: Path) -> None:
     """Mount static files for frontend, PMTiles, and data.
 
     Only mounts if not already mounted (idempotent).
+    Mount order matters: specific paths first, catch-all "/" last.
     """
     # Check if already mounted
     mounted_paths = {route.path for route in app.routes if hasattr(route, "path")}
 
-    # Mount static files (Starlette's StaticFiles supports HTTP Range requests)
-    static_dir = root_dir / "static"
-    if static_dir.exists() and "/" not in mounted_paths:
-        app.mount("/", StaticFiles(directory=static_dir, html=True), name="frontend")
-
-    # Mount PMTiles directory (needs Range support for efficient tile fetching)
-    tiles_dir = root_dir / "data" / "tiles" / "pmtiles"
-    if tiles_dir.exists() and "/tiles" not in mounted_paths:
-        app.mount("/tiles", StaticFiles(directory=tiles_dir), name="tiles")
-
-    # Mount data directory for other data files
+    # Mount data directory FIRST (more specific than /)
     data_dir = root_dir / "data"
     if data_dir.exists() and "/data" not in mounted_paths:
         app.mount("/data", StaticFiles(directory=data_dir), name="data")
+
+    # Mount static files LAST (catch-all for frontend SPA routing)
+    static_dir = root_dir / "static"
+    if static_dir.exists() and "/" not in mounted_paths:
+        app.mount("/", StaticFiles(directory=static_dir, html=True), name="frontend")
 
 
 # API metadata for OpenAPI docs

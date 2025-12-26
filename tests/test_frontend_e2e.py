@@ -101,9 +101,9 @@ class TestFrontendE2E:
         page.goto(live_server)
         wait_for_map_ready(page)
 
-        # Initial state should be absolute
+        # Initial state should be count mode
         mode_label = page.locator("#display-mode-label")
-        expect(mode_label).to_have_text("Absolute")
+        expect(mode_label).to_have_text("Count")
 
         legend_title = page.locator("#legend-title")
         expect(legend_title).to_contain_text("Event Count")
@@ -113,13 +113,13 @@ class TestFrontendE2E:
         toggle_slider.click()
 
         # Wait for mode to change via text assertion (has built-in retry)
-        expect(mode_label).to_have_text("Normalized")
+        expect(mode_label).to_have_text("Rate")
         expect(legend_title).to_contain_text("Rate per 10,000")
 
         # Click again to switch back
         toggle_slider.click()
 
-        expect(mode_label).to_have_text("Absolute")
+        expect(mode_label).to_have_text("Count")
         expect(legend_title).to_contain_text("Event Count")
 
     def test_category_filter_dropdown(self, page: Page, live_server: str) -> None:
@@ -1776,3 +1776,121 @@ class TestMobileE2E:
         # Bottom sheet should be closed
         bottom_sheet = page.locator("[data-testid='bottom-sheet']")
         expect(bottom_sheet).not_to_have_class("open")
+
+    def test_mobile_controls_positioned_in_corner(self, page: Page, live_server: str) -> None:
+        """Controls should be anchored to bottom-left corner on mobile.
+
+        Previously controls floated at bottom: 120px which looked disconnected.
+        Now should be at bottom: 16px, close to the corner.
+        """
+        page.set_viewport_size(MOBILE_VIEWPORT)
+        page.goto(live_server)
+        wait_for_map_ready(page)
+
+        controls = page.locator("#controls")
+        expect(controls).to_be_visible()
+
+        box = controls.bounding_box()
+        assert box is not None
+
+        # Bottom should be close to viewport bottom (within 50px)
+        viewport_height = MOBILE_VIEWPORT["height"]
+        controls_bottom = box["y"] + box["height"]
+        distance_from_bottom = viewport_height - controls_bottom
+        assert distance_from_bottom < 50, f"Controls too far from bottom: {distance_from_bottom}px"
+
+        # Left should be close to viewport edge
+        assert box["x"] < 20, f"Controls not in left corner: {box['x']}px from left"
+
+    def test_mobile_toggle_label_no_wrap(self, page: Page, live_server: str) -> None:
+        """Toggle label 'Count' should stay on single line.
+
+        On narrow viewports, the label was wrapping to two lines.
+        white-space: nowrap should prevent this.
+        """
+        page.set_viewport_size({"width": 320, "height": 568})  # Narrow viewport
+        page.goto(live_server)
+        wait_for_map_ready(page)
+
+        toggle_label = page.locator(".toggle-label")
+        expect(toggle_label).to_be_visible()
+
+        box = toggle_label.bounding_box()
+        assert box is not None
+
+        # Single line should be ~24-40px; two lines would be >50px
+        assert box["height"] < 50, f"Toggle label appears to wrap: {box['height']}px"
+
+    def test_mobile_legend_collapsed_padding(self, page: Page, live_server: str) -> None:
+        """Legend collapsed state should have symmetric padding.
+
+        On mobile, legend starts collapsed. The h4 margin-bottom should be 0
+        to avoid asymmetric spacing in this state.
+        """
+        page.set_viewport_size(MOBILE_VIEWPORT)
+        page.goto(live_server)
+        wait_for_map_ready(page)
+
+        # Legend starts collapsed on mobile
+        page.wait_for_selector("#legend.collapsed")
+
+        margin_bottom = page.evaluate("""
+            () => {
+                const h4 = document.querySelector('#legend.collapsed h4');
+                return parseInt(window.getComputedStyle(h4).marginBottom);
+            }
+        """)
+        assert margin_bottom == 0, (
+            f"h4 margin-bottom should be 0 when collapsed, got {margin_bottom}px"
+        )
+
+    def test_mobile_bottom_sheet_category_table_font(self, page: Page, live_server: str) -> None:
+        """Category table in bottom sheet should have adequate font size.
+
+        Mobile styling should increase font from 12px to 14px for readability.
+        """
+        page.set_viewport_size(MOBILE_VIEWPORT)
+        page.goto(live_server)
+        wait_for_map_ready(page)
+        wait_for_tiles_rendered(page)
+
+        # Open bottom sheet by clicking municipality
+        find_and_click_municipality(page)
+        wait_for_bottom_sheet_open(page)
+
+        font_size = page.evaluate("""
+            () => {
+                const table = document.querySelector('.sheet-content .category-table');
+                return table ? window.getComputedStyle(table).fontSize : null;
+            }
+        """)
+        assert font_size is not None, "Category table not found in bottom sheet"
+        size_value = int(font_size.replace("px", ""))
+        assert size_value >= 14, f"Category table font too small: {font_size}"
+
+    def test_mobile_search_input_enterkeyhint(self, page: Page, live_server: str) -> None:
+        """Search input should have enterkeyhint='search' for mobile keyboard.
+
+        This makes the mobile keyboard show 'Search' instead of 'Return'.
+        """
+        page.set_viewport_size(MOBILE_VIEWPORT)
+        page.goto(live_server)
+        wait_for_map_ready(page)
+
+        search_input = page.locator("#filter-search")
+        expect(search_input).to_have_attribute("enterkeyhint", "search")
+
+    def test_mobile_initial_map_shows_sweden(self, page: Page, live_server: str) -> None:
+        """Map should show all of Sweden on initial mobile load.
+
+        Uses fitBounds to adapt to viewport size rather than fixed zoom.
+        """
+        page.set_viewport_size(MOBILE_VIEWPORT)
+        page.goto(live_server)
+        wait_for_map_ready(page)
+
+        center = page.evaluate("window.map.getCenter()")
+
+        # Sweden is roughly at lat 55-70, lng 10-25
+        assert 55 < center["lat"] < 70, f"Map center latitude wrong: {center['lat']}"
+        assert 10 < center["lng"] < 25, f"Map center longitude wrong: {center['lng']}"

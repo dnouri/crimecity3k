@@ -28,9 +28,10 @@
 
         <div class="control-group">
             <label class="toggle-label">
-                <span id="display-mode-label">Absolute</span>
+                <span id="display-mode-label">Count</span>
                 <label class="toggle-switch">
-                    <input type="checkbox" id="display-mode-toggle">
+                    <input type="checkbox" id="display-mode-toggle"
+                           title="Toggle between total event count and rate per 10,000 population">
                     <span class="toggle-slider"></span>
                 </label>
             </label>
@@ -41,9 +42,29 @@
         <h4 id="legend-title">Event Count</h4>
         <div id="legend-items"></div>
         <div class="legend-footer">
-            Data: <a href="https://polisen.se" target="_blank" rel="noopener">Swedish Police</a>,
-            <a href="https://scb.se" target="_blank" rel="noopener">SCB</a> |
-            <a href="https://github.com/dnouri/crimecity3k" target="_blank" rel="noopener">Source</a>
+            <span class="legend-footer-text">
+                <span id="data-date">Data</span>
+            </span>
+            <button id="info-button" class="info-button" aria-label="Data sources and attribution" aria-expanded="false">
+                <span aria-hidden="true">ⓘ</span>
+            </button>
+        </div>
+        <div id="info-popover" class="info-popover" role="tooltip" hidden>
+            <div class="info-popover-content">
+                <div class="info-section">
+                    <div class="info-label">Data Sources</div>
+                    <a href="https://polisen.se" target="_blank" rel="noopener">Swedish Police</a>
+                    <a href="https://scb.se" target="_blank" rel="noopener">Statistics Sweden (SCB)</a>
+                </div>
+                <div class="info-section">
+                    <div class="info-label">Map</div>
+                    <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">© OpenStreetMap</a>
+                </div>
+                <div class="info-section">
+                    <div class="info-label">Code</div>
+                    <a href="https://github.com/dnouri/crimecity3k" target="_blank" rel="noopener">GitHub</a>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -72,7 +93,8 @@
             <div class="search-container">
                 <span class="search-icon" aria-hidden="true">🔍</span>
                 <input type="search" id="filter-search" class="search-input" data-testid="search-input"
-                       placeholder="Search events..." aria-label="Search events by keyword">
+                       placeholder="Search events..." aria-label="Search events by keyword"
+                       enterkeyhint="search" autocomplete="off">
             </div>
 
             <!-- Date presets -->
@@ -117,12 +139,16 @@
 
             <!-- Empty state -->
             <div id="empty-state" class="empty-state">
-                <p>No events match your filters.</p>
+                <div class="empty-icon">🔍</div>
+                <p class="empty-title">No events found</p>
+                <p class="empty-hint">Try widening your date range or clearing some filters.</p>
             </div>
 
             <!-- Error state -->
             <div id="error-state" class="error-state">
-                <p>Failed to load events.</p>
+                <div class="error-icon">⚠️</div>
+                <p class="error-title">Unable to load events</p>
+                <p class="error-hint">Check your connection and try again.</p>
                 <button id="retry-button">Try Again</button>
             </div>
         </div>

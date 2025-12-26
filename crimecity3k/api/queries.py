@@ -240,3 +240,20 @@ def get_event_count(conn: duckdb.DuckDBPyConnection) -> int:
     """
     result = conn.execute("SELECT COUNT(*) FROM events").fetchone()
     return result[0] if result else 0
+
+
+def get_latest_event_date(conn: duckdb.DuckDBPyConnection) -> date | None:
+    """Get the date of the most recent event in the database.
+
+    Args:
+        conn: DuckDB connection with events table
+
+    Returns:
+        Date of the latest event, or None if no events
+    """
+    result = conn.execute("SELECT MAX(datetime)::DATE FROM events").fetchone()
+    if result and result[0]:
+        # DuckDB returns a date object directly
+        latest_date: date = result[0]
+        return latest_date
+    return None

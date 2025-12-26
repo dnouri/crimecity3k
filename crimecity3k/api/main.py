@@ -27,6 +27,7 @@ from crimecity3k.api.categories import CATEGORY_TYPES
 from crimecity3k.api.fts import create_fts_index
 from crimecity3k.api.queries import (
     get_event_count,
+    get_latest_event_date,
     get_type_hierarchy,
     is_valid_h3_cell,
     query_events,
@@ -156,14 +157,15 @@ def get_db(request: Request) -> duckdb.DuckDBPyConnection:
 
 @app.get("/health", response_model=HealthResponse, tags=["System"])
 async def health_check(request: Request) -> HealthResponse:
-    """Check API health and return basic stats."""
+    """Check API health and return basic stats including latest event date."""
     try:
         db = get_db(request)
         count = get_event_count(db)
-        return HealthResponse(status="healthy", events_count=count)
+        data_updated = get_latest_event_date(db)
+        return HealthResponse(status="healthy", events_count=count, data_updated=data_updated)
     except HTTPException:
         # Database not initialized - still healthy but no events
-        return HealthResponse(status="healthy", events_count=0)
+        return HealthResponse(status="healthy", events_count=0, data_updated=None)
 
 
 @app.get("/api/types", response_model=TypeHierarchy, tags=["Events"])

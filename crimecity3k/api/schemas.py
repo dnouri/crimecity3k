@@ -4,6 +4,7 @@ Defines the contract for the events API endpoints, enabling
 automatic OpenAPI documentation and request/response validation.
 """
 
+from datetime import date
 from datetime import datetime as dt
 
 from pydantic import BaseModel, Field
@@ -49,3 +50,6 @@ class HealthResponse(BaseModel):
 
     status: str = Field(description="Service status")
     events_count: int = Field(description="Total events in database")
+    data_updated: date | None = Field(
+        default=None, description="Date when event data was last updated"
+    )

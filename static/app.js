@@ -15,6 +15,10 @@ const CONFIG = {
     center: [16.5, 62.5],
     initialZoom: 5,
 
+    // Sweden bounding box [west, south, east, north]
+    // Used for fitBounds on initial load to adapt to viewport size
+    swedenBounds: [[10.0, 55.0], [24.5, 69.5]],
+
     // PMTiles path (relative to server root)
     tilesPath: '/data/tiles/pmtiles',
 
@@ -81,6 +85,9 @@ let sourceLoaded = false;
 let currentCellData = null;  // { locationName, properties }
 let viewState = 'none';      // 'none' | 'stats' | 'drawer' | 'sheet'
 
+// Hover state for desktop municipality highlighting (stores kommun_namn)
+let hoveredMunicipalityId = null;
+
 /**
  * Check if viewport is mobile (<768px).
  */
@@ -100,8 +107,7 @@ const map = new maplibregl.Map({
             'osm': {
                 type: 'raster',
                 tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
-                tileSize: 256,
-                attribution: '&copy; <a href="https://openstreetmap.org">OpenStreetMap</a>'
+                tileSize: 256
             }
         },
         layers: [{
@@ -113,7 +119,8 @@ const map = new maplibregl.Map({
     center: CONFIG.center,
     zoom: CONFIG.initialZoom,
     maxZoom: 12,
-    minZoom: 3
+    minZoom: 3,
+    attributionControl: false  // We include attribution in the legend footer
 });
 
 // Expose map for E2E tests
@@ -331,6 +338,32 @@ function addMunicipalityLayer() {
 
     map.addLayer(layerConfig);
 
+    // Add hover highlight layer (line) for desktop - uses filter-based approach
+    map.addLayer({
+        id: 'municipalities-hover',
+        type: 'line',
+        source: sourceId,
+        'source-layer': 'municipalities',
+        paint: {
+            'line-color': '#0d6efd',
+            'line-width': 3
+        },
+        filter: ['==', ['get', 'kommun_namn'], '']  // Initially matches nothing
+    });
+
+    // Add selected highlight layer (line) - shows which municipality's details are displayed
+    map.addLayer({
+        id: 'municipalities-selected',
+        type: 'line',
+        source: sourceId,
+        'source-layer': 'municipalities',
+        paint: {
+            'line-color': '#0d9488',  // Teal - complements red choropleth
+            'line-width': 3
+        },
+        filter: ['==', ['get', 'kommun_namn'], '']  // Initially matches nothing
+    });
+
     // Register event handlers once
     registerLayerEventHandlers();
 }
@@ -346,6 +379,37 @@ function registerLayerEventHandlers() {
 
     map.on('mouseleave', 'municipalities', () => {
         map.getCanvas().style.cursor = '';
+        // Clear hover highlight on desktop
+        if (!isMobile() && hoveredMunicipalityId !== null) {
+            map.setFilter('municipalities-hover', ['==', ['get', 'kommun_namn'], '']);
+            hoveredMunicipalityId = null;
+        }
+    });
+
+    // Track hover for highlight effect (desktop only)
+    map.on('mousemove', 'municipalities', (e) => {
+        if (isMobile() || e.features.length === 0) return;
+
+        const feature = e.features[0];
+        const municipalityName = feature.properties.kommun_namn;
+
+        // Skip if no name or already hovering same municipality
+        if (!municipalityName || hoveredMunicipalityId === municipalityName) return;
+
+        // Skip hover effect if this municipality is already selected (shows orange outline)
+        const isSelected = currentCellData && currentCellData.locationName === municipalityName;
+        if (isSelected) {
+            // Clear any previous hover
+            if (hoveredMunicipalityId !== null) {
+                map.setFilter('municipalities-hover', ['==', ['get', 'kommun_namn'], '']);
+                hoveredMunicipalityId = null;
+            }
+            return;
+        }
+
+        // Update hover layer filter to highlight this municipality
+        hoveredMunicipalityId = municipalityName;
+        map.setFilter('municipalities-hover', ['==', ['get', 'kommun_namn'], municipalityName]);
     });
 
     // Click to show details
@@ -382,6 +446,11 @@ function showMunicipalityDetails(props) {
         locationName: locationName,
         properties: props
     };
+
+    // Update selected municipality outline on map
+    if (map.getLayer('municipalities-selected')) {
+        map.setFilter('municipalities-selected', ['==', ['get', 'kommun_namn'], locationName]);
+    }
 
     // Mobile: use bottom sheet
     if (isMobile()) {
@@ -460,6 +529,11 @@ function hideCellDetails() {
     viewState = 'none';
     currentCellData = null;
 
+    // Clear selected municipality outline on map
+    if (map.getLayer('municipalities-selected')) {
+        map.setFilter('municipalities-selected', ['==', ['get', 'kommun_namn'], '']);
+    }
+
     // Also close drill-down drawer if open
     if (DrillDown && DrillDown.isOpen()) {
         DrillDown.close(false);  // false = don't return to stats
@@ -523,6 +597,7 @@ function updateLayerFilter() {
     } else {
         map.setFilter('municipalities', null);
     }
+    // Note: municipalities-hover layer filter is managed by mouse events, not here
 
     // Also update paint since we might be showing different count field
     updateLayerPaint();
@@ -592,7 +667,7 @@ document.getElementById('display-mode-toggle').addEventListener('change', (e) =>
     window.displayMode = displayMode;
 
     document.getElementById('display-mode-label').textContent =
-        displayMode === 'absolute' ? 'Absolute' : 'Normalized';
+        displayMode === 'absolute' ? 'Count' : 'Rate';
 
     updateLegend();
     updateLayerPaint();
@@ -770,6 +845,24 @@ const DrillDown = {
                 this.currentPage = 1;
                 this.fetchEvents();
             }, 300);
+        });
+
+        // Search on Enter key (immediate, bypasses debounce)
+        this.elements.searchInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                // Cancel any pending debounced search
+                if (this.debounceTimer) {
+                    clearTimeout(this.debounceTimer);
+                    this.debounceTimer = null;
+                }
+                // Trigger immediate search
+                this.filters.search = e.target.value;
+                this.currentPage = 1;
+                this.fetchEvents();
+                // Blur to close mobile keyboard
+                e.target.blur();
+            }
         });
 
         // Date chips
@@ -1392,7 +1485,7 @@ const BottomSheet = {
         html += `<div class="stat-item"><span class="stat-value">${Math.round(population).toLocaleString()}</span><span class="stat-label">Population</span></div>`;
         html += '</div>';
 
-        html += renderCategoryBreakdownTable(props);
+        html += renderCategoryBreakdownTable(props, { showTotalRow: true });
 
         html += '<div class="sheet-actions">';
         html += '<button id="sheet-search-events" class="search-events-button" data-testid="sheet-search-events">Search Events →</button>';
@@ -1417,6 +1510,12 @@ window.BottomSheet = BottomSheet;
 
 // Map load handler
 map.on('load', () => {
+    // Fit map to Sweden bounds (adapts to viewport size, especially on mobile)
+    map.fitBounds(CONFIG.swedenBounds, {
+        padding: { top: 20, bottom: 80, left: 20, right: 20 },
+        maxZoom: CONFIG.initialZoom
+    });
+
     // Initialize drill-down drawer
     DrillDown.init();
 
@@ -1438,4 +1537,68 @@ map.on('load', () => {
 
     // Add municipality layer
     addMunicipalityLayer();
+
+    // Fetch and display data date
+    fetchDataDate();
+
+    // Initialize info popover
+    initInfoPopover();
 });
+
+// ============================================
+// INFO POPOVER
+// ============================================
+
+/**
+ * Fetch health endpoint and update the data date display.
+ */
+async function fetchDataDate() {
+    try {
+        const response = await fetch('/health');
+        if (response.ok) {
+            const data = await response.json();
+            if (data.data_updated) {
+                // Use ISO format (YYYY-MM-DD) - Swedish standard
+                document.getElementById('data-date').textContent = `Data as of ${data.data_updated}`;
+            }
+        }
+    } catch (e) {
+        // Silently fail - data date is not critical
+        console.warn('Failed to fetch data date:', e);
+    }
+}
+
+/**
+ * Initialize info popover toggle behavior.
+ */
+function initInfoPopover() {
+    const button = document.getElementById('info-button');
+    const popover = document.getElementById('info-popover');
+
+    if (!button || !popover) return;
+
+    // Toggle popover on button click
+    button.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const isHidden = popover.hidden;
+        popover.hidden = !isHidden;
+        button.setAttribute('aria-expanded', isHidden ? 'true' : 'false');
+    });
+
+    // Close popover when clicking outside
+    document.addEventListener('click', (e) => {
+        if (!popover.hidden && !popover.contains(e.target) && e.target !== button) {
+            popover.hidden = true;
+            button.setAttribute('aria-expanded', 'false');
+        }
+    });
+
+    // Close popover on Escape
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && !popover.hidden) {
+            popover.hidden = true;
+            button.setAttribute('aria-expanded', 'false');
+            button.focus();
+        }
+    });
+}

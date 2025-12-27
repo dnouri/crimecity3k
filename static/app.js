@@ -786,7 +786,6 @@ const DrillDown = {
         categories: [],
         types: []
     },
-    debounceTimer: null,
     abortController: null,
 
     // DOM Elements (cached on init)
@@ -837,25 +836,11 @@ const DrillDown = {
 
         // Note: Escape key is handled globally in the keyboard shortcuts section
 
-        // Search input (debounced)
-        this.elements.searchInput.addEventListener('input', (e) => {
-            this.debounce(() => {
-                this.filters.search = e.target.value;
-                this.currentPage = 1;
-                this.fetchEvents();
-            }, 300);
-        });
-
-        // Search on Enter key (immediate, bypasses debounce)
+        // Search on Enter key (explicit submit - no search-as-you-type)
+        // Mobile keyboard shows "Search" button via enterkeyhint="search" attribute
         this.elements.searchInput.addEventListener('keydown', (e) => {
             if (e.key === 'Enter') {
                 e.preventDefault();
-                // Cancel any pending debounced search
-                if (this.debounceTimer) {
-                    clearTimeout(this.debounceTimer);
-                    this.debounceTimer = null;
-                }
-                // Trigger immediate search
                 this.filters.search = e.target.value;
                 this.currentPage = 1;
                 this.fetchEvents();
@@ -1318,13 +1303,6 @@ const DrillDown = {
         card.classList.toggle('expanded');
     },
 
-    /**
-     * Debounce utility.
-     */
-    debounce(fn, delay) {
-        clearTimeout(this.debounceTimer);
-        this.debounceTimer = setTimeout(fn, delay);
-    }
 };
 
 // Expose for map integration and testing

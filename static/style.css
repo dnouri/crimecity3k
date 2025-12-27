@@ -1423,6 +1423,11 @@ kbd {
         transform: none;
     }
 
+    /* Remove handlebar on fullscreen drawer - no drag functionality */
+    .drill-down-drawer.open::before {
+        display: none;
+    }
+
     /* Hide desktop cell-details panel on mobile */
     #cell-details {
         display: none !important;

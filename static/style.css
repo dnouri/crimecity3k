@@ -356,13 +356,6 @@ body {
     margin-top: 12px;
 }
 
-.category-breakdown h5 {
-    margin: 0 0 8px 0;
-    font-size: 12px;
-    color: #666;
-    text-transform: uppercase;
-}
-
 .category-table {
     width: 100%;
     border-collapse: collapse;
@@ -1363,13 +1356,6 @@ kbd {
 }
 
 /* Category table styling within bottom sheet */
-.sheet-content .category-breakdown h5 {
-    font-size: 13px;
-    font-weight: 600;
-    color: #495057;
-    margin-bottom: 12px;
-}
-
 .sheet-content .category-table {
     font-size: 14px;
 }

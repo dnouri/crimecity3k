@@ -224,7 +224,6 @@ function renderCategoryBreakdownTable(props, options = {}) {
     const { showTotalRow = false } = options;
 
     let html = '<div class="category-breakdown">';
-    html += '<h5>By Category</h5>';
     html += '<table class="category-table">';
     html += '<thead><tr>';
     html += '<th scope="col">Category</th>';

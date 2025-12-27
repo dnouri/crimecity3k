@@ -1288,8 +1288,9 @@ class TestStatsFirstFlow:
         page.click("[data-testid='search-events-button']")
         wait_for_drawer_open(page)
 
-        # Apply filters: search text and date preset
+        # Apply filters: search text (requires Enter to submit) and date preset
         page.fill("#filter-search", "test filter")
+        page.press("#filter-search", "Enter")
         page.click("[data-testid='date-chip-7d']")
         page.wait_for_timeout(300)
 

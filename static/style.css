@@ -1137,6 +1137,11 @@ body {
     .event-card {
         padding: 16px;
     }
+
+    /* Hide type/subcategory expansion on mobile - too detailed for mobile use */
+    .type-expansion {
+        display: none !important;
+    }
 }
 
 /* ============================================

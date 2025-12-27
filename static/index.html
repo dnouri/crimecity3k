@@ -12,8 +12,7 @@
 
     <div id="controls">
         <div class="control-group">
-            <label for="category-filter">Category:</label>
-            <select id="category-filter">
+            <select id="category-filter" aria-label="Filter by category">
                 <option value="all">All Categories</option>
                 <option value="traffic">Traffic</option>
                 <option value="property">Property</option>
@@ -172,6 +171,9 @@
         </div>
         <div class="sheet-content" id="sheet-content">
             <!-- Content will be rendered here by BottomSheet.render() -->
+        </div>
+        <div class="sheet-footer" id="sheet-footer">
+            <!-- Search button rendered here by BottomSheet.render() -->
         </div>
     </div>
 

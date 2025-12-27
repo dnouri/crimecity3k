@@ -621,7 +621,11 @@ class TestDrillDownDrawer:
             assert new_count <= initial_count, "Filtering should not increase count"
 
     def test_search_filters_by_text(self, page: Page, live_server: str) -> None:
-        """Typing in search box should filter events by text."""
+        """Typing in search box and pressing Enter should filter events by text.
+
+        Search requires explicit submit (Enter key) - no search-as-you-type.
+        On mobile, the keyboard shows a Search button via enterkeyhint="search".
+        """
         page.goto(live_server)
         wait_for_map_ready(page)
         wait_for_tiles_rendered(page)
@@ -634,8 +638,9 @@ class TestDrillDownDrawer:
         search_input = page.locator("[data-testid='search-input']")
         expect(search_input).to_be_visible()
 
-        # Search for common Swedish word
+        # Search for common Swedish word and press Enter to submit
         search_input.fill("polis")
+        search_input.press("Enter")
 
         # Wait for content to reload after search
         wait_for_drawer_content(page)
@@ -662,8 +667,10 @@ class TestDrillDownDrawer:
         page.locator("[data-testid='category-property']").click()
         page.wait_for_selector("[data-testid='type-expansion'].visible", timeout=3000)
 
-        # Apply search
-        page.locator("[data-testid='search-input']").fill("Stockholm")
+        # Apply search (explicit submit with Enter)
+        search_input = page.locator("[data-testid='search-input']")
+        search_input.fill("Stockholm")
+        search_input.press("Enter")
 
         # Wait for content to reload after filters applied
         wait_for_drawer_content(page)
@@ -1281,8 +1288,9 @@ class TestStatsFirstFlow:
         page.click("[data-testid='search-events-button']")
         wait_for_drawer_open(page)
 
-        # Apply filters: search text and date preset
+        # Apply filters: search text (requires Enter to submit) and date preset
         page.fill("#filter-search", "test filter")
+        page.press("#filter-search", "Enter")
         page.click("[data-testid='date-chip-7d']")
         page.wait_for_timeout(300)
 

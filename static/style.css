@@ -1259,10 +1259,13 @@ kbd {
     transform: translateY(100%);
     transition: transform 0.3s ease-out;
     max-height: 90vh;
+    /* Flexbox layout for fixed footer */
+    flex-direction: column;
 }
 
 .bottom-sheet.open {
     transform: translateY(0);
+    display: flex;
 }
 
 .sheet-handle {
@@ -1306,7 +1309,8 @@ kbd {
 .sheet-content {
     padding: 16px;
     overflow-y: auto;
-    max-height: calc(90vh - 80px);
+    flex: 1;
+    min-height: 0; /* Allow flex item to shrink below content size */
 }
 
 /* Sheet stats grid */
@@ -1336,14 +1340,15 @@ kbd {
     margin-top: 4px;
 }
 
-/* Sheet actions */
-.sheet-actions {
-    margin-top: 16px;
-    padding-top: 16px;
+/* Sheet footer - fixed at bottom, always visible */
+.sheet-footer {
+    padding: 16px;
     border-top: 1px solid #e9ecef;
+    background: white;
+    flex-shrink: 0; /* Don't shrink footer */
 }
 
-.sheet-actions .search-events-button {
+.sheet-footer .search-events-button {
     width: 100%;
     padding: 14px 20px;
     font-size: 16px;
@@ -1356,7 +1361,7 @@ kbd {
     touch-action: manipulation;
 }
 
-.sheet-actions .search-events-button:active {
+.sheet-footer .search-events-button:active {
     background: #0a58ca;
 }
 

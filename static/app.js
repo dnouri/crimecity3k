@@ -1337,7 +1337,8 @@ const BottomSheet = {
             sheet: document.getElementById('bottom-sheet'),
             closeBtn: document.getElementById('sheet-close'),
             location: document.getElementById('sheet-location'),
-            content: document.getElementById('sheet-content')
+            content: document.getElementById('sheet-content'),
+            footer: document.getElementById('sheet-footer')
         };
     },
 
@@ -1444,11 +1445,14 @@ const BottomSheet = {
 
     /**
      * Render content into the bottom sheet.
+     * Stats and category table go in scrollable content area.
+     * Search button goes in fixed footer (always visible).
      * @param {object} props - Municipality properties
      */
     render(props) {
         if (!props) {
             this.elements.content.innerHTML = '<p>No data available</p>';
+            this.elements.footer.innerHTML = '';
             return;
         }
 
@@ -1456,19 +1460,19 @@ const BottomSheet = {
         const rate = getCurrentRate(props).toFixed(1);
         const totalCount = props.total_count || 0;
 
-        let html = '<div class="sheet-stats">';
-        html += `<div class="stat-item"><span class="stat-value">${totalCount.toLocaleString()}</span><span class="stat-label">Events</span></div>`;
-        html += `<div class="stat-item"><span class="stat-value">${rate}</span><span class="stat-label">per 10k</span></div>`;
-        html += `<div class="stat-item"><span class="stat-value">${Math.round(population).toLocaleString()}</span><span class="stat-label">Population</span></div>`;
-        html += '</div>';
+        // Content: stats + category table (scrollable)
+        let contentHtml = '<div class="sheet-stats">';
+        contentHtml += `<div class="stat-item"><span class="stat-value">${totalCount.toLocaleString()}</span><span class="stat-label">Events</span></div>`;
+        contentHtml += `<div class="stat-item"><span class="stat-value">${rate}</span><span class="stat-label">per 10k</span></div>`;
+        contentHtml += `<div class="stat-item"><span class="stat-value">${Math.round(population).toLocaleString()}</span><span class="stat-label">Population</span></div>`;
+        contentHtml += '</div>';
+        contentHtml += renderCategoryBreakdownTable(props, { showTotalRow: true });
 
-        html += renderCategoryBreakdownTable(props, { showTotalRow: true });
+        this.elements.content.innerHTML = contentHtml;
 
-        html += '<div class="sheet-actions">';
-        html += '<button id="sheet-search-events" class="search-events-button" data-testid="sheet-search-events">Search Events →</button>';
-        html += '</div>';
-
-        this.elements.content.innerHTML = html;
+        // Footer: search button (fixed, always visible)
+        const footerHtml = '<button id="sheet-search-events" class="search-events-button" data-testid="sheet-search-events">Search Events →</button>';
+        this.elements.footer.innerHTML = footerHtml;
 
         // Bind search events button
         document.getElementById('sheet-search-events').addEventListener('click', () => {

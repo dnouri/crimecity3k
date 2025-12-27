@@ -2,7 +2,7 @@
 # Builds and deploys CrimeCity3K with latest events data
 #
 # Triggers:
-# - Daily at 04:30 UTC (15 min after upstream polisen-se-events-history release)
+# - Daily at 05:30 UTC (well after upstream polisen-se-events-history release completes)
 # - Manual via workflow_dispatch
 # - On push to master branch (for testing deployment changes)
 # - repository_dispatch from upstream (future enhancement)
@@ -12,13 +12,21 @@
 # - DEPLOY_KNOWN_HOSTS: SSH known_hosts entry for server
 # - DEPLOY_SERVER: user@hostname for deployment target
 # - DEPLOY_DOMAIN: Public domain for health check verification
+#
+# Timing notes:
+# - Upstream "Daily Parquet Release" is scheduled at 04:15 UTC
+# - Due to GitHub Actions queue delays, it often starts ~30 min late (e.g., 04:45)
+# - The release job takes ~8 minutes to complete
+# - Previous 04:30 schedule caused a race condition where we fetched stale data
+# - 05:30 provides ~45 min buffer after the upstream job typically completes
 
 name: Daily Deploy
 
 on:
   schedule:
-    # Run at 04:30 UTC daily (15 min after upstream release at 04:15)
-    - cron: '30 4 * * *'
+    # Run at 05:30 UTC daily (1h15m after upstream release scheduled at 04:15)
+    # This provides buffer for GitHub Actions queue delays + job execution time
+    - cron: '30 5 * * *'
   workflow_dispatch:
     # Allow manual trigger from GitHub Actions UI
   repository_dispatch:

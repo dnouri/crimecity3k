@@ -440,6 +440,9 @@ function showMunicipalityDetails(props) {
     // Use kommun_namn from municipality tiles
     const locationName = props.kommun_namn || 'Unknown municipality';
 
+    // Easter egg check
+    GroveStreetEasterEgg.check(locationName);
+
     // Store current cell data for later use
     currentCellData = {
         locationName: locationName,
@@ -1583,3 +1586,103 @@ function initInfoPopover() {
         }
     });
 }
+
+// =============================================================================
+// Easter Egg: Grove Street 4 Life
+// Triggers once when viewing Malmö - Sweden's own "hood"
+// =============================================================================
+const GroveStreetEasterEgg = {
+    STORAGE_KEY: 'grove-street-triggered',
+    AUDIO_PATH: '/gta-sa-intro.mp3',
+
+    /**
+     * Check if easter egg should trigger for given municipality
+     */
+    check(municipalityName) {
+        if (municipalityName !== 'Malmö') return;
+        if (this.hasTriggered()) return;
+        this.trigger();
+    },
+
+    /**
+     * Check localStorage if already triggered
+     */
+    hasTriggered() {
+        try {
+            return localStorage.getItem(this.STORAGE_KEY) === 'true';
+        } catch {
+            return false;
+        }
+    },
+
+    /**
+     * Mark as triggered in localStorage
+     */
+    markTriggered() {
+        try {
+            localStorage.setItem(this.STORAGE_KEY, 'true');
+        } catch {
+            // localStorage not available, that's fine
+        }
+    },
+
+    /**
+     * Trigger the easter egg
+     */
+    trigger() {
+        this.markTriggered();
+
+        // Play audio
+        const audio = new Audio(this.AUDIO_PATH);
+        audio.volume = 0.6;
+        audio.play().catch(() => {});
+
+        // Visual: screen border glow
+        this.showGlow();
+
+        // Tactile: vibration pattern on mobile (gangster beat)
+        this.vibrate();
+    },
+
+    /**
+     * Green neon glow around screen edge, pulses for 12 seconds
+     */
+    showGlow() {
+        const overlay = document.createElement('div');
+        overlay.style.cssText = `
+            position: fixed;
+            inset: 0;
+            pointer-events: none;
+            z-index: 9999;
+            box-shadow: inset 0 0 80px rgba(124, 252, 0, 0);
+            transition: box-shadow 0.3s ease-in-out;
+        `;
+        document.body.appendChild(overlay);
+
+        // Pulse continuously for 12 seconds
+        const startTime = Date.now();
+        const duration = 12000;
+
+        const pulse = () => {
+            overlay.style.boxShadow = 'inset 0 0 80px rgba(124, 252, 0, 0.5)';
+            setTimeout(() => {
+                overlay.style.boxShadow = 'inset 0 0 80px rgba(124, 252, 0, 0)';
+                if (Date.now() - startTime < duration) {
+                    setTimeout(pulse, 400);
+                } else {
+                    setTimeout(() => overlay.remove(), 300);
+                }
+            }, 300);
+        };
+        pulse();
+    },
+
+    /**
+     * Vibration pattern: "shave and a haircut" gangster beat
+     */
+    vibrate() {
+        if (navigator.vibrate) {
+            navigator.vibrate([200, 100, 200, 100, 400, 200, 400]);
+        }
+    }
+};

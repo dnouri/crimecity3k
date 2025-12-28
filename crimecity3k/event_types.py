@@ -16,11 +16,10 @@ Usage:
     types = get_category_types()      # {"property": ["Stöld", ...], ...}
 """
 
+import tomllib
 from functools import lru_cache
 from pathlib import Path
 from typing import TypedDict
-
-import tomllib
 
 
 class EventTypeInfo(TypedDict):
@@ -58,9 +57,7 @@ def _find_toml_path() -> Path:
     if cwd_path.exists():
         return cwd_path
 
-    raise FileNotFoundError(
-        "event_types.toml not found. Expected at data/event_types.toml"
-    )
+    raise FileNotFoundError("event_types.toml not found. Expected at data/event_types.toml")
 
 
 @lru_cache(maxsize=1)
@@ -69,7 +66,8 @@ def _load_event_types() -> dict[str, EventTypeInfo]:
     toml_path = _find_toml_path()
     with open(toml_path, "rb") as f:
         data = tomllib.load(f)
-    return data.get("event_types", {})
+    event_types: dict[str, EventTypeInfo] = data.get("event_types", {})
+    return event_types
 
 
 def get_category(event_type: str) -> str:
@@ -146,10 +144,12 @@ def get_category_types_bilingual() -> dict[str, list[dict[str, str]]]:
     for swedish, info in event_types.items():
         category = info["category"]
         if category in result:
-            result[category].append({
-                "se": swedish,
-                "en": info["english"],
-            })
+            result[category].append(
+                {
+                    "se": swedish,
+                    "en": info["english"],
+                }
+            )
 
     # Sort by English name within each category
     for types in result.values():

@@ -1465,8 +1465,8 @@ class TestStatsFirstFlow:
 
     # --- Drawer Width ---
 
-    def test_drawer_is_480px_wide(self, page: Page, live_server: str) -> None:
-        """Drawer should be 480px wide (increased from 420px)."""
+    def test_drawer_is_560px_wide(self, page: Page, live_server: str) -> None:
+        """Drawer should be 560px wide (increased for subcategory panel)."""
         page.goto(live_server)
         wait_for_map_ready(page)
         wait_for_tiles_rendered(page)
@@ -1482,7 +1482,7 @@ class TestStatsFirstFlow:
                 return parseInt(window.getComputedStyle(drawer).width);
             }
         """)
-        assert width == 480, f"Drawer should be 480px wide, got {width}px"
+        assert width == 560, f"Drawer should be 560px wide, got {width}px"
 
     # --- Helper Methods ---
 

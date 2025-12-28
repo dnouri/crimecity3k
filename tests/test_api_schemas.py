@@ -12,7 +12,12 @@ from crimecity3k.api.categories import (
     get_category,
 )
 from crimecity3k.api.main import app
-from crimecity3k.api.schemas import EventResponse, EventsListResponse, TypeHierarchy
+from crimecity3k.api.schemas import (
+    EventResponse,
+    EventsListResponse,
+    TypeHierarchy,
+    TypeInfo,
+)
 
 
 class TestCategoryMapping:
@@ -150,10 +155,10 @@ class TestTypeHierarchySchema:
         """TypeHierarchy should accept dict of category→types with translations."""
         hierarchy = TypeHierarchy(
             categories={
-                "traffic": [{"se": "Trafikolycka", "en": "Traffic Accident"}],
+                "traffic": [TypeInfo(se="Trafikolycka", en="Traffic Accident")],
                 "property": [
-                    {"se": "Stöld", "en": "Theft"},
-                    {"se": "Inbrott", "en": "Burglary"},
+                    TypeInfo(se="Stöld", en="Theft"),
+                    TypeInfo(se="Inbrott", en="Burglary"),
                 ],
             }
         )

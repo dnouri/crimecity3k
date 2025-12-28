@@ -23,7 +23,6 @@ import duckdb
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.staticfiles import StaticFiles
 
-from crimecity3k.api.categories import CATEGORY_TYPES
 from crimecity3k.api.fts import create_fts_index
 from crimecity3k.api.queries import (
     get_event_count,
@@ -181,10 +180,10 @@ async def get_types(request: Request) -> TypeHierarchy:
     try:
         db = get_db(request)
         hierarchy = get_type_hierarchy(db)
-        return TypeHierarchy(categories=hierarchy)
+        return TypeHierarchy(categories=hierarchy)  # type: ignore[arg-type]
     except HTTPException:
         # Database not initialized - return static categories (bilingual)
-        return TypeHierarchy(categories=get_category_types_bilingual())
+        return TypeHierarchy(categories=get_category_types_bilingual())  # type: ignore[arg-type]
 
 
 @app.get("/api/events", response_model=EventsListResponse, tags=["Events"])

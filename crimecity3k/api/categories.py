@@ -38,8 +38,7 @@ CATEGORY_TYPES: dict[str, list[str]] = get_category_types()
 
 # Backwards compatible: type → category (reverse mapping)
 TYPE_TO_CATEGORY: dict[str, str] = {
-    swedish: info["category"]
-    for swedish, info in get_all_types().items()
+    swedish: info["category"] for swedish, info in get_all_types().items()
 }
 
 

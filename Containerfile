@@ -23,9 +23,10 @@ COPY pyproject.toml README.md config.toml ./
 COPY crimecity3k/ ./crimecity3k/
 COPY static/ ./static/
 
-# Copy data files (PMTiles + events parquet)
+# Copy data files (PMTiles, events parquet, event type mappings)
 COPY data/tiles/pmtiles/ ./data/tiles/pmtiles/
 COPY data/events.parquet ./data/
+COPY data/event_types.toml ./data/
 
 # Install Python dependencies
 # Use uv to install from pyproject.toml without creating a virtualenv

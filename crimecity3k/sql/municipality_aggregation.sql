@@ -13,6 +13,7 @@
 --   {{events_file}}      : Path to events Parquet file
 --   {{population_file}}  : Path to municipality population CSV
 --   {{output_file}}      : Path for output Parquet file (will be created)
+--   {{category_types}}   : Dict mapping category → list of Swedish event types
 --
 -- Output schema:
 --   kommun_kod        : VARCHAR  (4-digit municipality code like "0114")
@@ -30,15 +31,7 @@
 --   population        : INTEGER  (official SCB population)
 --   rate_per_10000    : DOUBLE   (events per 10,000 population)
 --
--- Category definitions (52 event types → 8 categories):
---   traffic       : 7 types  (accidents, traffic violations, drunk driving)
---   property      : 8 types  (theft, burglary, robbery, vandalism)
---   violence      : 7 types  (assault, rape, murder, threats)
---   narcotics     : 1 type   (drug offenses)
---   fraud         : 2 types  (fraud, usury)
---   public_order  : 6 types  (public order act, drunkenness, disturbance)
---   weapons       : 1 type   (weapons law violations)
---   other         : 20 types (all remaining event types)
+-- Category definitions are loaded from data/event_types.toml
 
 COPY (
     WITH municipalities AS (
@@ -52,68 +45,19 @@ COPY (
 
     events_categorized AS (
         -- Assign semantic categories to events
+        -- Category mapping generated from data/event_types.toml
         -- Exclude county-level events (ending in " län") and summary reports
         SELECT
             LOWER(location_name) AS location_name_lower,
             type,
             CASE
-                -- Traffic (Trafik): 7 types
+{%- for category, types in category_types.items() if category != 'other' and types %}
                 WHEN type IN (
-                    'Trafikolycka, personskada',
-                    'Trafikolycka, smitning',
-                    'Trafikolycka, singel',
-                    'Trafikolycka, övrigt',
-                    'Trafikbrott, övriga',
-                    'Rattfylleri',
-                    'Olovlig körning'
-                ) THEN 'traffic'
-
-                -- Property crimes (Egendomsbrott): 8 types
-                WHEN type IN (
-                    'Stöld',
-                    'Stöld/inbrott',
-                    'Tillgrepp, stöld',
-                    'Inbrott',
-                    'Skadegörelse',
-                    'Rån',
-                    'Rån, övrigt',
-                    'Rån väpnat'
-                ) THEN 'property'
-
-                -- Violence (Våld): 7 types
-                WHEN type IN (
-                    'Misshandel',
-                    'Misshandel, grov',
-                    'Våld/hot mot tjänsteman',
-                    'Våldtäkt',
-                    'Våldtäkt, försök',
-                    'Mord/dråp, försök',
-                    'Mord/dråp'
-                ) THEN 'violence'
-
-                -- Narcotics (Narkotika): 1 type
-                WHEN type = 'Narkotikabrott' THEN 'narcotics'
-
-                -- Fraud (Bedrägeri): 2 types
-                WHEN type IN (
-                    'Bedrägeri',
-                    'Bedrägeri, ocker'
-                ) THEN 'fraud'
-
-                -- Public order (Ordningsstörning): 6 types
-                WHEN type IN (
-                    'Ordningslagen',
-                    'Fylleri',
-                    'Ofredande/förargelse',
-                    'Brand',
-                    'Alkohollagen',
-                    'Övriga brott mot person'
-                ) THEN 'public_order'
-
-                -- Weapons (Vapen): 1 type
-                WHEN type = 'Vapenlagen' THEN 'weapons'
-
-                -- Other (Övrigt): all remaining event types
+{%- for t in types %}
+                    '{{ t }}'{{ ',' if not loop.last else '' }}
+{%- endfor %}
+                ) THEN '{{ category }}'
+{%- endfor %}
                 ELSE 'other'
             END AS category
         FROM '{{ events_file }}'

@@ -37,11 +37,18 @@ class EventsListResponse(BaseModel):
     events: list[EventResponse] = Field(description="Events on current page")
 
 
-class TypeHierarchy(BaseModel):
-    """Category to event types mapping."""
+class TypeInfo(BaseModel):
+    """Event type with translations."""
 
-    categories: dict[str, list[str]] = Field(
-        description="Map of category name to list of event types"
+    se: str = Field(description="Swedish event type name")
+    en: str = Field(description="English event type name")
+
+
+class TypeHierarchy(BaseModel):
+    """Category to event types mapping with translations."""
+
+    categories: dict[str, list[TypeInfo]] = Field(
+        description="Map of category name to list of event types with translations"
     )
 
 

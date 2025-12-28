@@ -783,10 +783,12 @@ const DrillDown = {
         search: '',
         startDate: null,
         endDate: null,
-        categories: [],
-        types: []
+        category: null,  // Single category or null for all
+        types: []        // Subcategory filter (empty = all types in category)
     },
     abortController: null,
+    typeTranslations: null,  // Cache: Swedish → English translations
+    allTypesByCategory: null, // Cache: all types per category from API
 
     // DOM Elements (cached on init)
     elements: {},
@@ -797,6 +799,39 @@ const DrillDown = {
     init() {
         this.cacheElements();
         this.bindEvents();
+        this.loadTypeTranslations();
+    },
+
+    /**
+     * Load type translations from API (Swedish → English).
+     */
+    async loadTypeTranslations() {
+        try {
+            const response = await fetch('/api/types');
+            const data = await response.json();
+            this.typeTranslations = {};
+            this.allTypesByCategory = {};
+            for (const [category, types] of Object.entries(data.categories)) {
+                this.allTypesByCategory[category] = types.map(t => t.se);
+                for (const t of types) {
+                    this.typeTranslations[t.se] = t.en;
+                }
+            }
+        } catch (error) {
+            console.error('Failed to load type translations:', error);
+            this.typeTranslations = {};
+            this.allTypesByCategory = {};
+        }
+    },
+
+    /**
+     * Translate Swedish type to English.
+     */
+    translateType(swedishType) {
+        if (this.typeTranslations && this.typeTranslations[swedishType]) {
+            return this.typeTranslations[swedishType];
+        }
+        return swedishType;  // Fallback to Swedish
     },
 
     /**
@@ -937,7 +972,7 @@ const DrillDown = {
             search: '',
             startDate: null,
             endDate: null,
-            categories: [],
+            category: null,
             types: []
         };
         this.elements.searchInput.value = '';
@@ -951,6 +986,7 @@ const DrillDown = {
         this.elements.categoryChips.forEach(c => c.classList.remove('active'));
         document.querySelector('[data-testid="category-all"]').classList.add('active');
         this.elements.typeExpansion.classList.remove('visible');
+        this.expandedCategory = null;
         this.elements.typeExpansion.innerHTML = '';
     },
 
@@ -1003,39 +1039,31 @@ const DrillDown = {
     },
 
     /**
-     * Handle category chip click.
+     * Handle category chip click (radio button behavior).
      */
     handleCategoryClick(chip) {
         const category = chip.dataset.category;
 
+        // Clear all category chips first
+        this.elements.categoryChips.forEach(c => c.classList.remove('active'));
+        chip.classList.add('active');
+
+        // Reset type filters when switching categories
+        this.filters.types = [];
+
         if (category === 'all') {
-            // Reset to all categories
-            this.elements.categoryChips.forEach(c => c.classList.remove('active'));
-            chip.classList.add('active');
-            this.filters.categories = [];
+            this.filters.category = null;
             this.elements.typeExpansion.classList.remove('visible');
+            this.expandedCategory = null;
         } else {
-            // Toggle single category
-            document.querySelector('[data-testid="category-all"]').classList.remove('active');
+            this.filters.category = category;
 
-            if (chip.classList.contains('active')) {
-                chip.classList.remove('active');
-                this.filters.categories = this.filters.categories.filter(c => c !== category);
-            } else {
-                chip.classList.add('active');
-                this.filters.categories.push(category);
-            }
-
-            // Show type expansion for selected category
-            if (this.filters.categories.length === 1) {
-                this.showTypeExpansion(this.filters.categories[0]);
-            } else {
+            // Toggle expansion: if already showing this category, close it
+            if (this.expandedCategory === category) {
                 this.elements.typeExpansion.classList.remove('visible');
-            }
-
-            // If no categories selected, reset to all
-            if (this.filters.categories.length === 0) {
-                document.querySelector('[data-testid="category-all"]').classList.add('active');
+                this.expandedCategory = null;
+            } else {
+                this.showTypeExpansion(category);
             }
         }
 
@@ -1044,48 +1072,80 @@ const DrillDown = {
     },
 
     /**
+     * Current category being expanded (for Apply button context).
+     */
+    expandedCategory: null,
+
+    /**
      * Show type expansion for a category.
      */
-    async showTypeExpansion(category) {
-        try {
-            const response = await fetch('/api/types');
-            const data = await response.json();
-            const types = data.categories[category] || [];
-
-            if (types.length === 0) {
-                this.elements.typeExpansion.classList.remove('visible');
-                return;
-            }
-
-            let html = '';
-            types.forEach(type => {
-                const typeId = type.toLowerCase().replace(/[^a-z]/g, '');
-                html += `
-                    <div class="type-checkbox">
-                        <input type="checkbox" id="type-${typeId}" data-testid="type-${typeId}" data-type="${type}" checked>
-                        <label for="type-${typeId}">${type}</label>
-                    </div>
-                `;
-            });
-
-            this.elements.typeExpansion.innerHTML = html;
-            this.elements.typeExpansion.classList.add('visible');
-
-            // Bind checkbox events
-            this.elements.typeExpansion.querySelectorAll('input').forEach(checkbox => {
-                checkbox.addEventListener('change', () => this.handleTypeChange());
-            });
-        } catch (error) {
-            console.error('Failed to load types:', error);
+    showTypeExpansion(category) {
+        // Wait for types to be loaded
+        if (!this.allTypesByCategory || !this.allTypesByCategory[category]) {
+            this.elements.typeExpansion.classList.remove('visible');
+            return;
         }
+
+        const allTypes = this.allTypesByCategory[category];
+        if (allTypes.length === 0) {
+            this.elements.typeExpansion.classList.remove('visible');
+            return;
+        }
+
+        this.expandedCategory = category;
+
+        // All types checked by default (empty types array = all)
+        const selectedTypes = this.filters.types.length > 0 ? this.filters.types : allTypes;
+
+        let html = '<div class="type-expansion-grid">';
+        allTypes.forEach(type => {
+            const typeId = (this.translateType(type) || type).toLowerCase().replace(/[^a-z]/g, '');
+            const isChecked = selectedTypes.includes(type);
+            const englishName = this.translateType(type);
+            html += `
+                <div class="type-checkbox">
+                    <input type="checkbox" id="type-${typeId}" data-type="${type}" ${isChecked ? 'checked' : ''}>
+                    <label for="type-${typeId}" title="${type}">${englishName}</label>
+                </div>
+            `;
+        });
+        html += '</div>';
+        html += `
+            <div class="type-expansion-footer">
+                <button class="type-expansion-apply" data-testid="type-apply">Apply</button>
+            </div>
+        `;
+
+        this.elements.typeExpansion.innerHTML = html;
+        this.elements.typeExpansion.classList.add('visible');
+
+        // Bind Apply button
+        this.elements.typeExpansion.querySelector('.type-expansion-apply')
+            .addEventListener('click', () => this.applyTypeSelection());
     },
 
     /**
-     * Handle type checkbox change.
+     * Apply type selection and close the expansion.
      */
-    handleTypeChange() {
+    applyTypeSelection() {
+        if (!this.expandedCategory) return;
+
+        const allTypes = this.allTypesByCategory[this.expandedCategory] || [];
         const checked = this.elements.typeExpansion.querySelectorAll('input:checked');
-        this.filters.types = Array.from(checked).map(cb => cb.dataset.type);
+        const selectedTypes = Array.from(checked).map(cb => cb.dataset.type);
+
+        // Store selection (empty array = all types)
+        if (selectedTypes.length === allTypes.length) {
+            this.filters.types = [];
+        } else {
+            this.filters.types = selectedTypes;
+        }
+
+        // Close expansion
+        this.elements.typeExpansion.classList.remove('visible');
+        this.expandedCategory = null;
+
+        // Fetch with new filters
         this.currentPage = 1;
         this.fetchEvents();
     },
@@ -1132,9 +1192,9 @@ const DrillDown = {
             if (this.filters.endDate) {
                 params.append('end_date', this.filters.endDate);
             }
-            this.filters.categories.forEach(cat => {
-                params.append('categories', cat);
-            });
+            if (this.filters.category) {
+                params.append('categories', this.filters.category);
+            }
             this.filters.types.forEach(type => {
                 params.append('types', type);
             });
@@ -1185,7 +1245,7 @@ const DrillDown = {
         const hasActiveFilters = this.filters.search ||
             this.filters.startDate ||
             this.filters.endDate ||
-            this.filters.categories.length > 0 ||
+            this.filters.category !== null ||
             this.filters.types.length > 0;
 
         let text;
@@ -1276,7 +1336,7 @@ const DrillDown = {
             <div class="event-card ${event.category}" data-testid="event-card" data-event-id="${event.event_id}">
                 <div class="event-meta">
                     <span class="event-date" data-testid="event-date">${dateStr}</span>
-                    <span class="event-type" data-testid="event-type">${event.type}</span>
+                    <span class="event-type" data-testid="event-type" title="${event.type}">${this.translateType(event.type)}</span>
                 </div>
                 <div class="event-location">${event.location_name}</div>
                 <div class="event-summary" data-testid="event-summary">${summary}</div>

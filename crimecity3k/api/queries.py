@@ -207,24 +207,31 @@ def query_events(
     }
 
 
-def get_type_hierarchy(conn: duckdb.DuckDBPyConnection) -> dict[str, list[str]]:
+def get_type_hierarchy(
+    conn: duckdb.DuckDBPyConnection,
+) -> dict[str, list[dict[str, str]]]:
     """Get category→types hierarchy including 'other' types from data.
 
     Args:
         conn: DuckDB connection with events table
 
     Returns:
-        Dict mapping category names to list of event types
+        Dict mapping category names to list of {se, en} type dicts.
+        Compatible with TypeInfo schema (Pydantic handles conversion).
     """
-    # Start with known categories
-    hierarchy = {cat: list(types) for cat, types in CATEGORY_TYPES.items()}
+    from crimecity3k.api.categories import get_category_types_bilingual, get_english
 
-    # Find 'other' types from actual data
+    # Start with known categories (bilingual)
+    hierarchy = get_category_types_bilingual()
+
+    # Find 'other' types from actual data and add translations
     result = conn.execute("SELECT DISTINCT type FROM events").fetchall()
     all_types = [r[0] for r in result]
 
     other_types = [t for t in all_types if get_category(t) == "other"]
-    hierarchy["other"] = sorted(other_types)
+    hierarchy["other"] = sorted(
+        [{"se": t, "en": get_english(t)} for t in other_types], key=lambda x: x["en"]
+    )
 
     return hierarchy
 

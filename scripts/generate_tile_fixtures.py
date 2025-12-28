@@ -48,7 +48,9 @@ def copy_municipality_data() -> None:
 
     # Copy boundaries
     dst_boundaries = FIXTURES_MUNI_DIR / "boundaries.geojson"
-    if not dst_boundaries.exists() or dst_boundaries.stat().st_mtime < MUNI_BOUNDARIES.stat().st_mtime:
+    needs_copy = not dst_boundaries.exists()
+    needs_copy = needs_copy or dst_boundaries.stat().st_mtime < MUNI_BOUNDARIES.stat().st_mtime
+    if needs_copy:
         shutil.copy2(MUNI_BOUNDARIES, dst_boundaries)
         logger.info(f"  Copied boundaries.geojson to {dst_boundaries}")
     else:
@@ -56,7 +58,9 @@ def copy_municipality_data() -> None:
 
     # Copy population
     dst_population = FIXTURES_MUNI_DIR / "population.csv"
-    if not dst_population.exists() or dst_population.stat().st_mtime < MUNI_POPULATION.stat().st_mtime:
+    needs_copy = not dst_population.exists()
+    needs_copy = needs_copy or dst_population.stat().st_mtime < MUNI_POPULATION.stat().st_mtime
+    if needs_copy:
         shutil.copy2(MUNI_POPULATION, dst_population)
         logger.info(f"  Copied population.csv to {dst_population}")
     else:

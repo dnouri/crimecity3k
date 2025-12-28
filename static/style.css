@@ -531,7 +531,7 @@ body {
     position: fixed;
     top: 0;
     right: 0;
-    width: 480px;
+    width: 560px;
     height: 100vh;
     background: white;
     box-shadow: -4px 0 20px rgba(0, 0, 0, 0.15);
@@ -600,10 +600,14 @@ body {
     padding: 12px 16px;
     background: #f8f9fa;
     border-bottom: 1px solid #e9ecef;
+    position: relative;
+    z-index: 10;
+    overflow: visible;
 }
 
 .filter-section {
     margin-top: 10px;
+    overflow: visible;
 }
 
 .filter-section:first-child {
@@ -701,36 +705,81 @@ body {
     font-size: 13px;
 }
 
-/* Type expansion */
+/* Type expansion - floating panel */
+.category-chips {
+    position: relative;
+}
+
 .type-expansion {
     display: none;
-    margin-top: 8px;
-    padding: 10px;
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    margin-top: 4px;
+    padding: 12px;
     background: white;
     border: 1px solid #dee2e6;
-    border-radius: 6px;
+    border-radius: 8px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+    z-index: 200;
+    max-height: 400px;
+    overflow-y: auto;
 }
 
 .type-expansion.visible {
     display: block;
 }
 
+.type-expansion-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 4px 16px;
+}
+
+.type-expansion-footer {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid #eee;
+}
+
+.type-expansion-apply {
+    background: #2563eb;
+    color: white;
+    border: none;
+    padding: 6px 16px;
+    border-radius: 4px;
+    font-size: 13px;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.type-expansion-apply:hover {
+    background: #1d4ed8;
+}
+
 .type-checkbox {
     display: flex;
     align-items: center;
-    gap: 8px;
-    padding: 4px 0;
-    font-size: 13px;
+    gap: 6px;
+    padding: 3px 0;
+    font-size: 12px;
 }
 
 .type-checkbox input {
-    width: 16px;
-    height: 16px;
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
 }
 
 .type-checkbox label {
     cursor: pointer;
     flex: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .type-checkbox .type-count {

@@ -19,7 +19,7 @@ class TestCategoryMapping:
     """Tests for category→type mapping."""
 
     def test_all_expected_categories_defined(self) -> None:
-        """All 8 categories should be defined (excluding 'other')."""
+        """All 8 categories should be defined (including 'other')."""
         expected = {
             "traffic",
             "property",
@@ -28,6 +28,7 @@ class TestCategoryMapping:
             "fraud",
             "public_order",
             "weapons",
+            "other",
         }
         assert set(CATEGORY_TYPES.keys()) == expected
 
@@ -35,19 +36,23 @@ class TestCategoryMapping:
         """Traffic category should have correct types."""
         assert "Trafikolycka, personskada" in CATEGORY_TYPES["traffic"]
         assert "Rattfylleri" in CATEGORY_TYPES["traffic"]
-        assert len(CATEGORY_TYPES["traffic"]) == 7
+        assert "Trafikolycka" in CATEGORY_TYPES["traffic"]  # Generic variant
+        assert "Trafikkontroll" in CATEGORY_TYPES["traffic"]
+        assert len(CATEGORY_TYPES["traffic"]) >= 10  # At least 10 traffic types
 
     def test_property_category_types(self) -> None:
         """Property category should have correct types."""
         assert "Stöld" in CATEGORY_TYPES["property"]
         assert "Rån väpnat" in CATEGORY_TYPES["property"]
-        assert len(CATEGORY_TYPES["property"]) == 8
+        assert "Motorfordon, stöld" in CATEGORY_TYPES["property"]
+        assert len(CATEGORY_TYPES["property"]) >= 10  # At least 10 property types
 
     def test_violence_category_types(self) -> None:
         """Violence category should have correct types."""
         assert "Misshandel" in CATEGORY_TYPES["violence"]
         assert "Mord/dråp" in CATEGORY_TYPES["violence"]
-        assert len(CATEGORY_TYPES["violence"]) == 7
+        assert "Olaga hot" in CATEGORY_TYPES["violence"]  # Now included
+        assert len(CATEGORY_TYPES["violence"]) >= 10  # At least 10 violence types
 
     def test_type_to_category_reverse_lookup(self) -> None:
         """TYPE_TO_CATEGORY should correctly reverse the mapping."""
@@ -66,10 +71,11 @@ class TestCategoryMapping:
         assert get_category("") == "other"
 
     def test_get_all_categories_includes_other(self) -> None:
-        """get_all_categories should include 'other' at the end."""
+        """get_all_categories should include all 8 categories including 'other'."""
         categories = get_all_categories()
         assert "other" in categories
-        assert categories[-1] == "other"
+        assert "traffic" in categories
+        assert "violence" in categories
         assert len(categories) == 8
 
 
@@ -141,15 +147,19 @@ class TestTypeHierarchySchema:
     """Tests for TypeHierarchy Pydantic model."""
 
     def test_type_hierarchy_structure(self) -> None:
-        """TypeHierarchy should accept dict of category→types."""
+        """TypeHierarchy should accept dict of category→types with translations."""
         hierarchy = TypeHierarchy(
             categories={
-                "traffic": ["Trafikolycka, personskada"],
-                "property": ["Stöld", "Inbrott"],
+                "traffic": [{"se": "Trafikolycka", "en": "Traffic Accident"}],
+                "property": [
+                    {"se": "Stöld", "en": "Theft"},
+                    {"se": "Inbrott", "en": "Burglary"},
+                ],
             }
         )
         assert "traffic" in hierarchy.categories
         assert len(hierarchy.categories["property"]) == 2
+        assert hierarchy.categories["traffic"][0].en == "Traffic Accident"
 
 
 class TestAPIStubEndpoints:

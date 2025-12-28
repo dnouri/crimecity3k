@@ -173,16 +173,18 @@ async def get_types(request: Request) -> TypeHierarchy:
     """Get category→types hierarchy for filter UI.
 
     Returns all 8 categories with their associated event types.
+    Each type includes both Swedish (se) and English (en) names.
     The 'other' category is populated dynamically from database.
     """
+    from crimecity3k.api.categories import get_category_types_bilingual
+
     try:
         db = get_db(request)
         hierarchy = get_type_hierarchy(db)
         return TypeHierarchy(categories=hierarchy)
     except HTTPException:
-        # Database not initialized - return static categories
-        categories = {**CATEGORY_TYPES, "other": []}
-        return TypeHierarchy(categories=categories)
+        # Database not initialized - return static categories (bilingual)
+        return TypeHierarchy(categories=get_category_types_bilingual())
 
 
 @app.get("/api/events", response_model=EventsListResponse, tags=["Events"])

@@ -304,7 +304,7 @@ class TestTypesEndpoint:
     """Tests for the types hierarchy endpoint."""
 
     def test_get_types_returns_category_hierarchy(self, client: TestClient) -> None:
-        """Types endpoint should return all categories with their types."""
+        """Types endpoint should return all categories with their types (bilingual)."""
         response = client.get("/api/types")
         assert response.status_code == 200
         data = response.json()
@@ -323,9 +323,16 @@ class TestTypesEndpoint:
         assert "weapons" in categories
         assert "other" in categories
 
-        # Traffic should have expected types
-        assert "Trafikolycka, personskada" in categories["traffic"]
-        assert "Rattfylleri" in categories["traffic"]
+        # Types should be {se, en} objects
+        traffic_types = categories["traffic"]
+        assert len(traffic_types) > 0
+        assert "se" in traffic_types[0]
+        assert "en" in traffic_types[0]
+
+        # Traffic should have expected types (check Swedish names)
+        traffic_swedish = [t["se"] for t in traffic_types]
+        assert "Trafikolycka, personskada" in traffic_swedish
+        assert "Rattfylleri" in traffic_swedish
 
     def test_get_types_other_category_populated_from_data(
         self, client: TestClient, events_db: duckdb.DuckDBPyConnection

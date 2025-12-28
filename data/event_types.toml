@@ -1,0 +1,124 @@
+# Event Type Definitions
+# Maps Swedish police event types to English translations and categories.
+#
+# Categories:
+#   - traffic: Road accidents, traffic violations, drunk driving
+#   - property: Theft, burglary, robbery, vandalism
+#   - violence: Assault, threats, murder, sexual crimes
+#   - narcotics: Drug-related offenses
+#   - fraud: Financial crimes, forgery, elder fraud
+#   - public_order: Public disturbances, fire, alcohol violations
+#   - weapons: Weapons and knife law violations
+#   - other: Police activities, rescues, misc events
+
+[event_types]
+
+# === TRAFFIC (16 types) ===
+"Rattfylleri" = { english = "Drunk Driving", category = "traffic" }
+"Olovlig körning" = { english = "Unlicensed Driving", category = "traffic" }
+"Trafikolycka" = { english = "Traffic Accident", category = "traffic" }
+"Trafikolycka, personskada" = { english = "Traffic Accident, Injury", category = "traffic" }
+"Trafikolycka, singel" = { english = "Traffic Accident, Single Vehicle", category = "traffic" }
+"Trafikolycka, vilt" = { english = "Traffic Accident, Wildlife", category = "traffic" }
+"Trafikolycka, smitning från" = { english = "Hit and Run", category = "traffic" }
+"Trafikolycka, övrigt" = { english = "Traffic Accident, Other", category = "traffic" }
+"Trafikbrott" = { english = "Traffic Offense", category = "traffic" }
+"Trafikbrott, övriga" = { english = "Traffic Offense, Other", category = "traffic" }
+"Trafikkontroll" = { english = "Traffic Control", category = "traffic" }
+"Trafikhinder" = { english = "Traffic Obstruction", category = "traffic" }
+"Kontroll person/fordon" = { english = "Person/Vehicle Check", category = "traffic" }
+
+# === PROPERTY (14 types) ===
+"Stöld" = { english = "Theft", category = "property" }
+"Stöld, försök" = { english = "Attempted Theft", category = "property" }
+"Stöld/inbrott" = { english = "Theft/Burglary", category = "property" }
+"Inbrott" = { english = "Burglary", category = "property" }
+"Inbrott, försök" = { english = "Attempted Burglary", category = "property" }
+"Tillgrepp, stöld" = { english = "Larceny", category = "property" }
+"Motorfordon, stöld" = { english = "Motor Vehicle Theft", category = "property" }
+"Motorfordon, anträffat stulet" = { english = "Stolen Vehicle Found", category = "property" }
+"Rån" = { english = "Robbery", category = "property" }
+"Rån, försök" = { english = "Attempted Robbery", category = "property" }
+"Rån väpnat" = { english = "Armed Robbery", category = "property" }
+"Rån övrigt" = { english = "Robbery, Other", category = "property" }
+"Rån, övrigt" = { english = "Robbery, Other", category = "property" }
+"Skadegörelse" = { english = "Vandalism", category = "property" }
+"Häleri" = { english = "Receiving Stolen Goods", category = "property" }
+
+# === VIOLENCE (18 types) ===
+"Misshandel" = { english = "Assault", category = "violence" }
+"Misshandel, grov" = { english = "Aggravated Assault", category = "violence" }
+"Mord/dråp" = { english = "Murder/Manslaughter", category = "violence" }
+"Mord/dråp, försök" = { english = "Attempted Murder", category = "violence" }
+"Mordbrand" = { english = "Arson", category = "violence" }
+"Våldtäkt" = { english = "Rape", category = "violence" }
+"Våldtäkt, försök" = { english = "Attempted Rape", category = "violence" }
+"Våld/hot mot tjänsteman" = { english = "Violence/Threats Against Official", category = "violence" }
+"Olaga hot" = { english = "Unlawful Threat", category = "violence" }
+"Olaga frihetsberövande/människorov" = { english = "Unlawful Detention/Kidnapping", category = "violence" }
+"Bråk" = { english = "Fight/Brawl", category = "violence" }
+"Vållande till kroppsskada" = { english = "Causing Bodily Harm", category = "violence" }
+"Sexualbrott" = { english = "Sexual Crime", category = "violence" }
+"Sedlighetsbrott" = { english = "Sexual Offense", category = "violence" }
+"Övriga brott mot person" = { english = "Other Crimes Against Person", category = "violence" }
+"Hets mot folkgrupp" = { english = "Hate Speech", category = "violence" }
+"Hemfridsbrott" = { english = "Trespassing/Home Invasion", category = "violence" }
+"Olaga intrång" = { english = "Trespassing", category = "violence" }
+
+# === WEAPONS (2 types) ===
+"Vapenlagen" = { english = "Weapons Act Violation", category = "weapons" }
+"Knivlagen" = { english = "Knife Act Violation", category = "weapons" }
+
+# === NARCOTICS (1 type) ===
+"Narkotikabrott" = { english = "Drug Offense", category = "narcotics" }
+
+# === FRAUD (5 types) ===
+"Bedrägeri" = { english = "Fraud", category = "fraud" }
+"Bedrägeri, ocker" = { english = "Fraud, Usury", category = "fraud" }
+"Åldringsbrott" = { english = "Elder Fraud", category = "fraud" }
+"Ekobrott" = { english = "Economic Crime", category = "fraud" }
+"Förfalskningsbrott" = { english = "Forgery", category = "fraud" }
+"Missbruk av urkund" = { english = "Document Fraud", category = "fraud" }
+
+# === PUBLIC ORDER (10 types) ===
+"Brand" = { english = "Fire", category = "public_order" }
+"Brand automatlarm" = { english = "Fire, Automatic Alarm", category = "public_order" }
+"Fylleri" = { english = "Public Intoxication", category = "public_order" }
+"Fylleri/LOB" = { english = "Public Intoxication", category = "public_order" }
+"Ordningslagen" = { english = "Public Order Act Violation", category = "public_order" }
+"Alkohollagen" = { english = "Alcohol Act Violation", category = "public_order" }
+"Ofredande/förargelse" = { english = "Harassment/Disturbance", category = "public_order" }
+"Sabotage mot blåljusverksamhet" = { english = "Sabotage Against Emergency Services", category = "public_order" }
+
+# === OTHER (remaining types - police activities, rescues, misc) ===
+"Övrigt" = { english = "Other/Miscellaneous", category = "other" }
+"Arbetsplatsolycka" = { english = "Workplace Accident", category = "other" }
+"Försvunnen person" = { english = "Missing Person", category = "other" }
+"Efterlyst person" = { english = "Wanted Person", category = "other" }
+"Anträffad död" = { english = "Body Found", category = "other" }
+"Anträffat gods" = { english = "Property Found", category = "other" }
+"Fjällräddning" = { english = "Mountain Rescue", category = "other" }
+"Räddningsinsats" = { english = "Rescue Operation", category = "other" }
+"Sjukdom/olycksfall" = { english = "Illness/Accident", category = "other" }
+"Farligt föremål, misstänkt" = { english = "Suspected Dangerous Object", category = "other" }
+"Bombhot" = { english = "Bomb Threat", category = "other" }
+"Explosion" = { english = "Explosion", category = "other" }
+"Detonation" = { english = "Detonation", category = "other" }
+"Skottlossning" = { english = "Shooting", category = "other" }
+"Skottlossning, misstänkt" = { english = "Suspected Shooting", category = "other" }
+"Smällar" = { english = "Bangs/Loud Noises", category = "other" }
+"Polisinsats/kommendering" = { english = "Police Operation", category = "other" }
+"Kontroll" = { english = "Control/Check", category = "other" }
+"Larm Inbrott" = { english = "Burglary Alarm", category = "other" }
+"Larm Överfall" = { english = "Assault Alarm", category = "other" }
+"Varningslarm/haveri" = { english = "Warning Alarm/Breakdown", category = "other" }
+"Djur" = { english = "Animal-related", category = "other" }
+"Lagen om hundar och katter" = { english = "Dog and Cat Act", category = "other" }
+"Miljöbrott" = { english = "Environmental Crime", category = "other" }
+"Sjölagen" = { english = "Maritime Law", category = "other" }
+"Luftfartslagen" = { english = "Aviation Law", category = "other" }
+"Utlänningslagen" = { english = "Immigration Law", category = "other" }
+"Skyddslagen" = { english = "Protection Act", category = "other" }
+"Spridning smitta/kemikalier" = { english = "Spreading Disease/Chemicals", category = "other" }
+"Information" = { english = "Information", category = "other" }
+"Uppdatering" = { english = "Update", category = "other" }

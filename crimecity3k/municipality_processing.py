@@ -12,6 +12,7 @@ from qck import qck  # type: ignore[import-untyped]
 
 from crimecity3k.config import Config
 from crimecity3k.data_access import create_configured_connection
+from crimecity3k.event_types import get_category_types
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +74,7 @@ def aggregate_events_to_municipalities(
         "events_file": str(events_file),
         "population_file": str(population_file),
         "output_file": str(temp_file),  # Write to .tmp first
+        "category_types": get_category_types(),  # For Jinja CASE generation
     }
 
     logger.info("Aggregating events to municipalities")
